@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* 1. إخفاء أسهم الأرقام (طالع ونازل) في الموقع كله */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* 2. تلوين وتنعيم الـ Scrollbar عشان يبقى دارك شيك وميظهرش الأبيض ده أبداً */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155; /* لون رمادي غامق أنيق متناسق مع الدارك مود */
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
