@@ -18,6 +18,7 @@ import {
   Filter,
   Receipt,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 
 const getCurrentDateTimeLocal = () => {
@@ -90,6 +91,13 @@ export default function Appointments() {
     itemDescription: "كشف / استشارة",
     itemPrice: "",
     paidAmount: "",
+  });
+
+  // حالة مودال تأكيد الحذف النهائي
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    appointmentId: null,
+    patientName: "",
   });
 
   // جلب المواعيد مع دعم الفلاتر والـ Retry
@@ -240,6 +248,23 @@ export default function Appointments() {
         err.response?.data?.error || "حدث خطأ أثناء إنشاء الفاتورة",
         "error"
       );
+    },
+  });
+
+  // Mutation حذف الموعد
+  const deleteAppointmentMutation = useMutation({
+    mutationFn: async (id) => {
+      const res = await api.delete(`/appointments/${id}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      setDeleteModal({ isOpen: false, appointmentId: null, patientName: "" });
+      showToast("تم حذف الموعد نهائياً بنجاح", "success");
+    },
+    onError: (err) => {
+      // لو الموعد مربوط بفاتورة نشطة هتطلع الرسالة بالتوست فوراً
+      showToast(err.response?.data?.error || "فشل حذف الموعد", "error");
     },
   });
 
@@ -599,6 +624,20 @@ export default function Appointments() {
                           className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors"
                         >
                           <Receipt className="w-4 h-4" />
+                        </button>
+                        {/* زر مسح الموعد نهائياً */}
+                        <button
+                          title="حذف الموعد نهائياً"
+                          onClick={() =>
+                            setDeleteModal({
+                              isOpen: true,
+                              appointmentId: apt.appointment_id,
+                              patientName: apt.patient_name,
+                            })
+                          }
+                          className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -1117,6 +1156,62 @@ export default function Appointments() {
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
           )}
           <span>{toast.message}</span>
+        </div>
+      )}
+      {/* نافذة تأكيد حذف الموعد */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  تأكيد حذف الموعد
+                </h3>
+                <p className="text-xs text-slate-400">
+                  هذا الإجراء سيحذف الموعد نهائياً من قاعدة البيانات
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-300">
+              هل أنت متأكد من حذف موعد المريض{" "}
+              <span className="font-bold text-white">
+                "{deleteModal.patientName}"
+              </span>
+              ؟
+            </p>
+
+            <div className="flex gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() =>
+                  setDeleteModal({
+                    isOpen: false,
+                    appointmentId: null,
+                    patientName: "",
+                  })
+                }
+                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={deleteAppointmentMutation.isPending}
+                onClick={() =>
+                  deleteAppointmentMutation.mutate(deleteModal.appointmentId)
+                }
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+              >
+                {deleteAppointmentMutation.isPending
+                  ? "جاري الحذف..."
+                  : "تأكيد الحذف"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

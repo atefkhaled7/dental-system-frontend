@@ -20,6 +20,9 @@ import {
   Phone,
   Clock,
   Wallet,
+  Printer,
+  Archive,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function Invoices() {
@@ -94,17 +97,24 @@ export default function Invoices() {
     notes: "",
   });
 
+  // حالة عرض الفواتير المؤرشفة
+  const [showArchived, setShowArchived] = useState(false);
+
+  // حالة مودال تأكيد أرشفة الفاتورة
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
   // 1. جلب الفواتير
   const { data: invoices = [], isLoading } = useQuery({
-    queryKey: ["invoices", searchTerm, statusFilter],
+    queryKey: ["invoices", searchTerm, statusFilter, showArchived],
     queryFn: async () => {
       const res = await api.get("/invoices", {
         params: {
           search: searchTerm || undefined,
           status: statusFilter || undefined,
+          archived: showArchived,
         },
       });
-      return res.data || [];
+      return Array.isArray(res.data) ? res.data : res.data.invoices || [];
     },
   });
 
@@ -203,6 +213,22 @@ export default function Invoices() {
     },
     onError: (err) => {
       alert(err.response?.data?.error || "فشل إلغاء الفاتورة");
+    },
+  });
+
+  const archiveInvoiceMutation = useMutation({
+    mutationFn: async (invoiceId) => {
+      const res = await api.patch(`/invoices/${invoiceId}/archive`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      setIsArchiveConfirmOpen(false);
+      setIsDetailsModalOpen(false);
+      alert("تم أرشفة الفاتورة بنجاح ولا يمكن التراجع عنها");
+    },
+    onError: (err) => {
+      alert(err.response?.data?.error || "حدث خطأ أثناء أرشفة الفاتورة");
     },
   });
 
@@ -343,6 +369,131 @@ export default function Invoices() {
     other: "أخرى",
   };
 
+  const handlePrintInvoice = () => {
+    if (!invoiceDetails && !selectedInvoice) return;
+    const inv = invoiceDetails || selectedInvoice;
+
+    const printWindow = window.open("", "_blank", "width=850,height=900");
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="utf-8" />
+          <title>فاتورة ضريبية #${inv.id}</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #0f172a; margin: 0; }
+            .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px; }
+            .clinic-name { font-size: 26px; font-weight: bold; color: #1e3a8a; margin-bottom: 4px; }
+            .sub { font-size: 13px; color: #64748b; }
+            .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 25px; font-size: 13px; line-height: 1.8; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+            th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: right; font-size: 13px; }
+            th { background: #f1f5f9; color: #475569; font-weight: 600; }
+            .summary { width: 320px; margin-right: auto; margin-left: 0; font-size: 14px; margin-top: 20px; }
+            .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #cbd5e1; }
+            .total { font-weight: bold; font-size: 17px; color: #1e3a8a; border-top: 2px solid #0f172a; border-bottom: none; padding-top: 10px; margin-top: 6px; }
+            .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="clinic-name">عيادة الأسنان التخصصية</div>
+            <div class="sub">فاتورة علاج رقم #${inv.id} • بتاريخ ${new Date(
+      inv.created_at
+    ).toLocaleDateString("en-GB")}</div>
+          </div>
+          <div class="meta-box">
+            <div>
+              <strong>اسم المريض:</strong> ${inv.patient_name}<br/>
+              <strong>رقم الهاتف:</strong> ${inv.patient_phone || "-"}<br/>
+            </div>
+            <div>
+              <strong>الطبيب المعالج:</strong> د. ${
+                inv.doctor_name || "كشف عام"
+              }<br/>
+              <strong>حالة الفاتورة:</strong> ${
+                inv.status === "paid"
+                  ? "مدفوعة بالكامل"
+                  : inv.status === "partially_paid"
+                  ? "مدفوعة جزئياً"
+                  : "غير مدفوعة"
+              }<br/>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>البند / الخدمة</th>
+                <th style="text-align: center;">الكمية</th>
+                <th style="text-align: left;">سعر الوحدة</th>
+                <th style="text-align: left;">الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(
+                inv.items || [
+                  {
+                    description: "كشف وعلاج أسنان",
+                    quantity: 1,
+                    unit_price: inv.total_amount,
+                    total_price: inv.total_amount,
+                  },
+                ]
+              )
+                .map(
+                  (it) => `
+                <tr>
+                  <td>${it.description}</td>
+                  <td style="text-align: center;">${it.quantity}</td>
+                  <td style="text-align: left;">${parseFloat(
+                    it.unit_price
+                  ).toLocaleString("en-US")} ج.م</td>
+                  <td style="text-align: left; font-weight: bold;">${parseFloat(
+                    it.total_price
+                  ).toLocaleString("en-US")} ج.م</td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+          <div class="summary">
+            <div class="summary-row">
+              <span>إجمالي الفاتورة:</span>
+              <span>${parseFloat(inv.total_amount || 0).toLocaleString(
+                "en-US"
+              )} ج.م</span>
+            </div>
+            <div class="summary-row" style="color: #059669;">
+              <span>المدفوع:</span>
+              <span>${parseFloat(inv.paid_amount || 0).toLocaleString(
+                "en-US"
+              )} ج.م</span>
+            </div>
+            <div class="summary-row total" style="color: #dc2626;">
+              <span>المتبقي:</span>
+              <span>${parseFloat(inv.remaining_amount || 0).toLocaleString(
+                "en-US"
+              )} ج.م</span>
+            </div>
+          </div>
+          <div class="footer">
+            نتمنى لكم دوام الصحة والعافية • نسعد دائماً بخدمتكم
+          </div>
+          <script>
+            window.onload = function() { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   return (
     <div className="space-y-6">
       {/* الهيدر العلوي */}
@@ -382,25 +533,39 @@ export default function Invoices() {
           />
         </div>
 
-        <div className="flex gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          {[
-            { label: "الكل", value: "" },
-            { label: "غير مدفوعة", value: "unpaid" },
-            { label: "مدفوعة جزئياً", value: "partially_paid" },
-            { label: "مدفوعة بالكامل", value: "paid" },
-          ].map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setStatusFilter(tab.value)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors border ${
-                statusFilter === tab.value
-                  ? "bg-blue-600 text-white border-blue-500"
-                  : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex gap-2">
+            {[
+              { label: "الكل", value: "" },
+              { label: "غير مدفوعة", value: "unpaid" },
+              { label: "مدفوعة جزئياً", value: "partially_paid" },
+              { label: "مدفوعة بالكامل", value: "paid" },
+            ].map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setStatusFilter(tab.value)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors border ${
+                  statusFilter === tab.value
+                    ? "bg-blue-600 text-white border-blue-500"
+                    : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 🌟 زرار عرض الفواتير المؤرشفة / النشطة */}
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap border transition-all ${
+              showArchived
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+            }`}
+          >
+            {showArchived ? "العودة للفواتير النشطة" : "الفواتير المؤرشفة"}
+          </button>
         </div>
       </div>
 
@@ -1104,12 +1269,39 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setIsDetailsModalOpen(false)}
-                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-medium"
-                >
-                  إغلاق
-                </button>
+                {/* أزرار الإجراءات أسفل الفاتورة */}
+                <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-800">
+                  {/* 1. زر طباعة الفاتورة */}
+                  <button
+                    type="button"
+                    onClick={handlePrintInvoice}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-medium transition-colors shadow-lg shadow-blue-600/20"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة الفاتورة</span>
+                  </button>
+
+                  {/* 2. زر أرشفة الفاتورة (للأدمن فقط وللفواتير النشطة) */}
+                  {!showArchived && user?.role === "ClinicAdmin" && (
+                    <button
+                      type="button"
+                      onClick={() => setIsArchiveConfirmOpen(true)}
+                      className="flex items-center gap-1.5 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-xs font-medium transition-colors"
+                    >
+                      <Archive className="w-4 h-4" />
+                      <span>أرشفة</span>
+                    </button>
+                  )}
+
+                  {/* 3. زر إغلاق */}
+                  <button
+                    type="button"
+                    onClick={() => setIsDetailsModalOpen(false)}
+                    className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
+                  >
+                    إغلاق
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1311,6 +1503,60 @@ export default function Invoices() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* نافذة تأكيد أرشفة الفاتورة (لا يمكن التراجع عنها) */}
+      {isArchiveConfirmOpen && selectedInvoice && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  تأكيد أرشفة الفاتورة
+                </h3>
+                <p className="text-xs text-red-400 font-semibold">
+                  تنبيه: هذا الإجراء نهائي ولا يمكن التراجع عنه مطلقاً
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-300 leading-relaxed">
+              هل أنت متأكد من أرشفة الفاتورة رقم{" "}
+              <span className="font-bold font-mono text-white">
+                #{selectedInvoice.id}
+              </span>{" "}
+              الخاصة بالمريض{" "}
+              <span className="font-bold text-white">
+                "{selectedInvoice.patient_name}"
+              </span>
+              ؟
+            </p>
+
+            <div className="flex gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsArchiveConfirmOpen(false)}
+                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={archiveInvoiceMutation.isPending}
+                onClick={() =>
+                  archiveInvoiceMutation.mutate(selectedInvoice.id)
+                }
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+              >
+                {archiveInvoiceMutation.isPending
+                  ? "جاري الأرشفة..."
+                  : "تأكيد الأرشفة نهائياً"}
+              </button>
+            </div>
           </div>
         </div>
       )}
