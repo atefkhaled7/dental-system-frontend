@@ -10,6 +10,7 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import DentalChart from "../components/DentalChart";
 
 export default function Patients() {
   const queryClient = useQueryClient();
@@ -591,7 +592,7 @@ export default function Patients() {
       {/* نافذة الملف الشخصي للمريض (Patient Profile Modal) */}
       {selectedPatient && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-slate-900 border border-slate-800 max-w-[1050px] w-full rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             {/* هيدر البروفايل */}
             <div className="p-6 border-b border-slate-800 flex items-start justify-between bg-slate-950/40">
               <div className="flex items-center gap-4">
@@ -627,6 +628,7 @@ export default function Patients() {
             <div className="flex border-b border-slate-800 px-6 gap-6 text-sm font-medium bg-slate-950/20">
               {[
                 { id: "overview", label: "نظرة عامة (Overview)" },
+                { id: "dental_chart", label: "مخطط الأسنان (Dental Chart) 🦷" },
                 { id: "appointments", label: "المواعيد" },
                 { id: "invoices", label: "الفواتير" },
                 { id: "lab_orders", label: "طلبات المعمل" },
@@ -692,6 +694,14 @@ export default function Patients() {
                     )}
                   </div>
                 </div>
+              )}
+
+              {/* تبويب مكون الاسنان*/}
+              {activeTab === "dental_chart" && (
+                <DentalChart
+                  patientId={selectedPatient.id}
+                  showToast={showToast}
+                />
               )}
 
               {/* تبويب المواعيد */}
