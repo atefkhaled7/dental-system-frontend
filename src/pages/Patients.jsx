@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
+import TreatmentPlans from "../components/TreatmentPlans";
 import {
   Users,
   UserPlus,
@@ -589,23 +590,28 @@ export default function Patients() {
           </div>
         </div>
       )}
-      {/* نافذة الملف الشخصي للمريض (Patient Profile Modal) */}
+      {/* نافذة الملف الشخصي للمريض (Patient Profile Modal - Responsive Native Feel) */}
       {selectedPatient && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-[1050px] w-full rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* هيدر البروفايل */}
-            <div className="p-6 border-b border-slate-800 flex items-start justify-between bg-slate-950/40">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold text-lg">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50">
+          <div
+            className={`bg-slate-900 border-0 sm:border border-slate-800 w-full h-full sm:h-auto max-h-[100dvh] sm:max-h-[90vh] rounded-none sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out ${
+              activeTab === "dental_chart"
+                ? "sm:max-w-[1050px]"
+                : "sm:max-w-2xl"
+            }`}
+          >
+            {/* 1. هيدر البروفايل الثابت */}
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold text-base shrink-0">
                   {selectedPatient.name.charAt(0)}
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <div className="truncate">
+                  <h2 className="text-base sm:text-lg font-bold text-white truncate">
                     {selectedPatient.name}
                   </h2>
-                  <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                    <span dir="ltr" className="flex items-center gap-1">
-                      <Phone className="w-3.5 h-3.5 text-slate-500" />
+                  <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                    <span dir="ltr" className="font-mono">
                       {selectedPatient.phone_number}
                     </span>
                     <span>•</span>
@@ -618,17 +624,18 @@ export default function Patients() {
 
               <button
                 onClick={() => setSelectedPatient(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* شريط التبويبات (Tabs) */}
-            <div className="flex border-b border-slate-800 px-6 gap-6 text-sm font-medium bg-slate-950/20">
+            {/* 2. شريط التبويبات المتجاوب (سكرول أفقي ناعم بدون كسر سطور) */}
+            <div className="flex border-b border-slate-800 px-3 sm:px-6 gap-2 sm:gap-6 text-xs sm:text-sm font-medium bg-slate-950/30 overflow-x-auto whitespace-nowrap shrink-0">
               {[
-                { id: "overview", label: "نظرة عامة (Overview)" },
-                { id: "dental_chart", label: "مخطط الأسنان (Dental Chart) 🦷" },
+                { id: "overview", label: "نظرة عامة" },
+                { id: "dental_chart", label: "مخطط الأسنان 🦷" },
+                { id: "treatment_plans", label: "خطط العلاج 📋" },
                 { id: "appointments", label: "المواعيد" },
                 { id: "invoices", label: "الفواتير" },
                 { id: "lab_orders", label: "طلبات المعمل" },
@@ -636,9 +643,9 @@ export default function Patients() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-3.5 border-b-2 transition-colors relative ${
+                  className={`py-3 px-2 sm:px-1 border-b-2 transition-colors shrink-0 ${
                     activeTab === tab.id
-                      ? "border-blue-500 text-blue-400"
+                      ? "border-blue-500 text-blue-400 font-bold"
                       : "border-transparent text-slate-400 hover:text-slate-200"
                   }`}
                 >
@@ -647,12 +654,12 @@ export default function Patients() {
               ))}
             </div>
 
-            {/* محتوى التبويب المختار */}
-            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+            {/* 3. محتوى التبويب المختار (سكرول داخلي رأسي) */}
+            <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-4">
               {activeTab === "overview" && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-xl">
                       <span className="text-xs text-slate-500 block mb-1">
                         تاريخ الميلاد والسن
                       </span>
@@ -668,7 +675,7 @@ export default function Patients() {
                       </span>
                     </div>
 
-                    <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl">
+                    <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-xl">
                       <span className="text-xs text-slate-500 block mb-1">
                         النوع
                       </span>
@@ -678,7 +685,7 @@ export default function Patients() {
                     </div>
                   </div>
 
-                  <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl">
+                  <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-xl">
                     <span className="text-xs text-slate-500 block mb-1">
                       التنبيهات الطبية والحساسية
                     </span>
@@ -696,9 +703,15 @@ export default function Patients() {
                 </div>
               )}
 
-              {/* تبويب مكون الاسنان*/}
               {activeTab === "dental_chart" && (
                 <DentalChart
+                  patientId={selectedPatient.id}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === "treatment_plans" && (
+                <TreatmentPlans
                   patientId={selectedPatient.id}
                   showToast={showToast}
                 />
@@ -854,16 +867,16 @@ export default function Patients() {
                 </div>
               )}
             </div>
-
-            {/* أزرار الإجراءات في الأسفل (تعديل وأرشفة) */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex justify-between gap-3">
+            {/* أزرار الإجراءات في الأسفل (ثابتة في الموبايل والديسكتوب) */}
+            <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950/80 flex justify-between gap-3 shrink-0">
               {showArchived ? (
                 <button
+                  type="button"
                   onClick={() =>
                     restorePatientMutation.mutate(selectedPatient.id)
                   }
                   disabled={restorePatientMutation.isPending}
-                  className="px-4 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-950/50 border border-emerald-900/50 rounded-xl transition-colors"
+                  className="px-3 sm:px-4 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-950/50 border border-emerald-900/50 rounded-xl transition-colors"
                 >
                   {restorePatientMutation.isPending
                     ? "جاري الاستعادة..."
@@ -871,19 +884,18 @@ export default function Patients() {
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={() => handleArchiveClick(selectedPatient)}
-                  className="px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-950/50 border border-red-900/50 rounded-xl transition-colors"
+                  className="px-3 sm:px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-950/50 border border-red-900/50 rounded-xl transition-colors"
                 >
                   أرشفة ملف المريض
                 </button>
               )}
 
               <button
-                onClick={() => {
-                  // سنربطها بخطوة التعديل التالية
-                  handleEditClick(selectedPatient);
-                }}
-                className="px-5 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors shadow-lg shadow-blue-600/20"
+                type="button"
+                onClick={() => handleEditClick(selectedPatient)}
+                className="px-4 sm:px-5 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition-colors shadow-lg shadow-blue-600/20"
               >
                 تعديل البيانات
               </button>

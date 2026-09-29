@@ -1,15 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
-import {
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  History,
-  User,
-  Loader2,
-  Save,
-} from "lucide-react";
+import { Clock, History, User, Loader2, Save } from "lucide-react";
 
 // تعريف الحالات والألوان
 const CONDITIONS = {
@@ -57,7 +49,6 @@ const CONDITIONS = {
   },
 };
 
-// تحديد نوع السن
 const getToothCategory = (num) => {
   const lastDigit = num % 10;
   if (lastDigit === 1 || lastDigit === 2) return "incisor";
@@ -66,7 +57,6 @@ const getToothCategory = (num) => {
   return "molar";
 };
 
-// الاسم الطبي بالعربي
 const getToothArabicName = (num) => {
   const q = Math.floor(num / 10);
   const d = num % 10;
@@ -89,7 +79,7 @@ const getToothArabicName = (num) => {
   return `${names[d] || "سن"} (${quadNames[q] || ""})`;
 };
 
-// مكوّن رسم السن التشريحي كـ SVG دقيق
+// رسم السن التشريحي كـ SVG دقيق
 function AnatomicalToothSVG({
   toothNumber,
   condition = "sound",
@@ -109,7 +99,7 @@ function AnatomicalToothSVG({
 
   return (
     <svg
-      viewBox="0 0 36 60"
+      viewBox="0 0 36 68"
       className={`w-full h-full transition-all duration-200 ${
         isMissing ? "opacity-35" : ""
       }`}
@@ -117,33 +107,33 @@ function AnatomicalToothSVG({
         transform: isUpper ? "none" : "rotate(180deg)",
       }}
     >
-      {/* 1. الجذور (Roots) */}
+      {/* 1. الجذور الأطول */}
       {isImplant ? (
         <g stroke="#10b981" strokeWidth="1.5" fill="none">
-          <path d="M14 8 L22 8 M13 14 L23 14 M14 20 L22 20 M15 26 L21 26 M18 32 L18 8" />
+          <path d="M14 6 L22 6 M13 13 L23 13 M14 20 L22 20 M14 27 L22 27 M15 34 L21 34 M18 36 L18 6" />
           <polygon
-            points="12,6 24,6 20,32 16,32"
+            points="12,4 24,4 20,36 16,36"
             fill="#064e3b"
             stroke="#10b981"
           />
         </g>
       ) : type === "molar" ? (
         <path
-          d="M10 32 C8 20 6 8 9 4 C12 8 15 18 18 24 C21 18 24 8 27 4 C30 8 28 20 26 32 Z"
+          d="M10 36 C8 22 6 8 9 3 C12 7 15 20 18 27 C21 20 24 7 27 3 C30 8 28 22 26 36 Z"
           fill={isMissing ? "none" : "#0f172a"}
           stroke={strokeColor}
           strokeWidth="1.3"
         />
       ) : type === "premolar" ? (
         <path
-          d="M12 32 C10 20 12 7 15 4 C17 6 18 16 19 22 C20 16 21 6 23 4 C25 8 24 20 22 32 Z"
+          d="M12 36 C10 22 12 7 15 3 C17 6 18 18 19 25 C20 18 21 6 23 3 C25 8 24 22 22 36 Z"
           fill={isMissing ? "none" : "#0f172a"}
           stroke={strokeColor}
           strokeWidth="1.3"
         />
       ) : (
         <path
-          d="M13 32 C12 18 15 6 18 3 C21 6 24 18 23 32 Z"
+          d="M13 36 C12 20 15 6 18 2 C21 6 24 20 23 36 Z"
           fill={isMissing ? "none" : "#0f172a"}
           stroke={strokeColor}
           strokeWidth="1.3"
@@ -154,7 +144,7 @@ function AnatomicalToothSVG({
       {isRCT && !isImplant && (
         <path
           d={
-            type === "molar" ? "M11 6 Q14 18 18 28 Q22 18 25 6" : "M18 5 L18 30"
+            type === "molar" ? "M11 5 Q14 20 18 32 Q22 20 25 5" : "M18 4 L18 34"
           }
           stroke="#f59e0b"
           strokeWidth="2"
@@ -163,31 +153,31 @@ function AnatomicalToothSVG({
         />
       )}
 
-      {/* 2. التاج (Crown) */}
+      {/* 2. التاج الأطول والأكثر وضوحاً */}
       {type === "molar" ? (
         <path
-          d="M6 32 C6 28 10 28 18 28 C26 28 30 28 30 32 C31 40 31 52 28 55 C24 58 12 58 8 55 C5 52 5 40 6 32 Z"
+          d="M6 36 C6 31 10 31 18 31 C26 31 30 31 30 36 C31 45 31 59 28 63 C24 66 12 66 8 63 C5 59 5 45 6 36 Z"
           fill={crownFill}
           stroke={strokeColor}
           strokeWidth="1.5"
         />
       ) : type === "canine" ? (
         <path
-          d="M9 32 C10 28 14 28 18 28 C22 28 26 28 27 32 C28 42 27 50 18 57 C9 50 8 42 9 32 Z"
+          d="M9 36 C10 31 14 31 18 31 C22 31 26 31 27 36 C28 47 27 58 18 65 C9 58 8 47 9 36 Z"
           fill={crownFill}
           stroke={strokeColor}
           strokeWidth="1.5"
         />
       ) : type === "incisor" ? (
         <path
-          d="M10 32 C10 28 14 28 18 28 C22 28 26 28 26 32 C27 40 27 52 26 55 C23 56 13 56 10 55 C9 52 9 40 10 32 Z"
+          d="M10 36 C10 31 14 31 18 31 C22 31 26 31 26 36 C27 45 27 59 26 63 C23 64 13 64 10 63 C9 59 9 45 10 36 Z"
           fill={crownFill}
           stroke={strokeColor}
           strokeWidth="1.5"
         />
       ) : (
         <path
-          d="M8 32 C8 28 13 28 18 28 C23 28 28 28 28 32 C29 40 29 52 26 55 C22 57 14 57 10 55 C7 52 7 40 8 32 Z"
+          d="M8 36 C8 31 13 31 18 31 C23 31 28 31 28 36 C29 45 29 59 26 63 C22 65 14 65 10 63 C7 59 7 45 8 36 Z"
           fill={crownFill}
           stroke={strokeColor}
           strokeWidth="1.5"
@@ -196,31 +186,35 @@ function AnatomicalToothSVG({
 
       {/* تأثيرات الحالات */}
       {isCaries && (
-        <ellipse cx="18" cy="42" rx="5" ry="4" fill="#ef4444" opacity="0.9" />
+        <ellipse
+          cx="18"
+          cy="48"
+          rx="5.5"
+          ry="4.5"
+          fill="#ef4444"
+          opacity="0.9"
+        />
       )}
-
       {isFilled && (
         <path
-          d="M13 38 Q18 36 23 38 Q21 46 18 47 Q15 46 13 38 Z"
+          d="M13 44 Q18 42 23 44 Q21 53 18 54 Q15 53 13 44 Z"
           fill="#0284c7"
           stroke="#38bdf8"
           strokeWidth="0.8"
         />
       )}
-
       {isCrown && (
         <path
-          d="M10 33 L26 33 M12 40 L24 40 M14 47 L22 47"
+          d="M10 38 L26 38 M12 46 L24 46 M14 54 L22 54"
           stroke="#f3e8ff"
           strokeWidth="1"
           opacity="0.6"
         />
       )}
-
       {isMissing && (
         <g stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round">
-          <line x1="6" y1="10" x2="30" y2="50" />
-          <line x1="30" y1="10" x2="6" y2="50" />
+          <line x1="6" y1="10" x2="30" y2="58" />
+          <line x1="30" y1="10" x2="6" y2="58" />
         </g>
       )}
     </svg>
@@ -228,26 +222,27 @@ function AnatomicalToothSVG({
 }
 
 // أرباع الأسنان بنظام FDI
-const QUAD_1 = [18, 17, 16, 15, 14, 13, 12, 11]; // علوي أيمن للمريض (يسار الشاشة)
-const QUAD_2 = [21, 22, 23, 24, 25, 26, 27, 28]; // علوي أيسر للمريض (يمين الشاشة)
-const QUAD_4 = [48, 47, 46, 45, 44, 43, 42, 41]; // سفلي أيمن للمريض (يسار الشاشة)
-const QUAD_3 = [31, 32, 33, 34, 35, 36, 37, 38]; // سفلي أيسر للمريض (يمين الشاشة)
+const QUAD_1 = [18, 17, 16, 15, 14, 13, 12, 11];
+const QUAD_2 = [21, 22, 23, 24, 25, 26, 27, 28];
+const QUAD_4 = [48, 47, 46, 45, 44, 43, 42, 41];
+const QUAD_3 = [31, 32, 33, 34, 35, 36, 37, 38];
 
-// 🌟 حسابات انحناء القوس الطبيعي وزوايا الميل التشريحية
-const ARCH_PROFILE = {
+// 🌟 انحناء القوس المتزن (يحافظ على كامل الفكين في الرؤية بدون سكرول)
+const DESKTOP_ARCH_PROFILE = {
   1: { y: 0, rot: 0 },
-  2: { y: 3, rot: 2 },
-  3: { y: 8, rot: 4.5 },
-  4: { y: 15, rot: 7.5 },
-  5: { y: 22, rot: 10.5 },
-  6: { y: 30, rot: 13 },
-  7: { y: 37, rot: 15 },
-  8: { y: 43, rot: 16.5 },
+  2: { y: 2, rot: 1.5 },
+  3: { y: 5, rot: 3.5 },
+  4: { y: 9, rot: 6 },
+  5: { y: 13, rot: 8.5 },
+  6: { y: 17, rot: 10.5 },
+  7: { y: 21, rot: 12 },
+  8: { y: 24, rot: 13 },
 };
 
 export default function DentalChart({ patientId, showToast }) {
   const queryClient = useQueryClient();
   const [selectedTooth, setSelectedTooth] = useState(16);
+  const [mobileArchTab, setMobileArchTab] = useState("upper");
 
   const [toothForm, setToothForm] = useState({
     condition: "sound",
@@ -255,7 +250,6 @@ export default function DentalChart({ patientId, showToast }) {
     notes: "",
   });
 
-  // 1. جلب الأسنان المسجلة
   const { data: teeth = [], isLoading } = useQuery({
     queryKey: ["patient-teeth", patientId],
     queryFn: async () => {
@@ -270,7 +264,6 @@ export default function DentalChart({ patientId, showToast }) {
     return acc;
   }, {});
 
-  // 2. جلب سجل السن المختار
   const { data: toothHistory = [], isLoading: isLoadingHistory } = useQuery({
     queryKey: ["tooth-history", patientId, selectedTooth],
     queryFn: async () => {
@@ -293,7 +286,6 @@ export default function DentalChart({ patientId, showToast }) {
     });
   };
 
-  // 3. تحديث حالة السن
   const updateToothMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.put(
@@ -307,8 +299,7 @@ export default function DentalChart({ patientId, showToast }) {
       queryClient.invalidateQueries({
         queryKey: ["tooth-history", patientId, selectedTooth],
       });
-      if (showToast)
-        showToast("تم تحديث السن وتسجيل الإجراء في التاريخ بنجاح", "success");
+      if (showToast) showToast("تم تحديث السن بنجاح", "success");
     },
     onError: (err) => {
       if (showToast)
@@ -321,54 +312,35 @@ export default function DentalChart({ patientId, showToast }) {
     updateToothMutation.mutate(toothForm);
   };
 
-  // 🌟 مكوّن السن مع الميلان الطبيعي وانحناء القوس
-  const renderArchTooth = (toothNum, isUpper) => {
+  // مكوّن السن للموبايل (محافظ على التجاوب التام)
+  const renderMobileTooth = (toothNum, isUpper) => {
     const toothData = teethMap[toothNum];
     const condition = toothData?.condition || "sound";
     const isSelected = selectedTooth === toothNum;
-    const digit = toothNum % 10;
-    const q = Math.floor(toothNum / 10);
-    const profile = ARCH_PROFILE[digit] || { y: 0, rot: 0 };
-
-    // الإزاحة الرأسية (القوس العلوي ينحدر لأسفل الأطراف، السفلي يرتفع لأعلى الأطراف)
-    const translateY = isUpper ? profile.y : -profile.y;
-
-    // زاوية الميلان الطبيعية حسب الربع
-    let rot = 0;
-    if (q === 1) rot = -profile.rot;
-    else if (q === 2) rot = profile.rot;
-    else if (q === 4) rot = profile.rot;
-    else if (q === 3) rot = -profile.rot;
 
     return (
       <div
         key={toothNum}
         onClick={() => handleSelectTooth(toothNum)}
-        style={{
-          transform: `translateY(${translateY}px) rotate(${rot}deg)`,
-        }}
-        className={`group flex flex-col items-center cursor-pointer transition-transform duration-200 select-none ${
-          isSelected ? "z-30 scale-110" : "hover:scale-105 z-10"
+        className={`flex-1 flex flex-col items-center cursor-pointer transition-all active:scale-95 ${
+          isSelected ? "z-20 scale-105" : ""
         }`}
       >
-        {/* رقم السن العلوي */}
         {isUpper && (
           <span
-            className={`text-[10px] font-mono font-bold mb-1 transition-colors ${
-              isSelected
-                ? "text-blue-400"
-                : "text-slate-500 group-hover:text-slate-300"
+            className={`text-[10px] font-mono font-bold mb-0.5 ${
+              isSelected ? "text-blue-400" : "text-slate-400"
             }`}
           >
             {toothNum}
           </span>
         )}
 
-        {/* حاوية الـ SVG والتوهج */}
+        {/* تكبير السن باعتدال للأناقة والوضوح (44px x 76px) */}
         <div
-          className={`w-7 sm:w-8 md:w-9 h-12 sm:h-14 md:h-15 p-1 rounded-xl transition-all duration-200 ${
+          className={`w-10 lg:w-[44px] h-[70px] lg:h-[76px] p-1 rounded-xl transition-all duration-200 ${
             isSelected
-              ? "bg-blue-950/50 ring-2 ring-blue-500 shadow-[0_0_14px_rgba(59,130,246,0.6)]"
+              ? "bg-blue-950/60 ring-2 ring-blue-500 shadow-[0_0_16px_rgba(59,130,246,0.6)]"
               : "hover:bg-slate-900/60"
           }`}
         >
@@ -379,13 +351,77 @@ export default function DentalChart({ patientId, showToast }) {
           />
         </div>
 
-        {/* رقم السن السفلي */}
         {!isUpper && (
           <span
-            className={`text-[10px] font-mono font-bold mt-1 transition-colors ${
+            className={`text-[10px] font-mono font-bold mt-0.5 ${
+              isSelected ? "text-blue-400" : "text-slate-400"
+            }`}
+          >
+            {toothNum}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  // 🌟 مكوّن السن للديسكتوب (أكبر، أوضح، وأطول: 42px x 68px)
+  const renderDesktopTooth = (toothNum, isUpper) => {
+    const toothData = teethMap[toothNum];
+    const condition = toothData?.condition || "sound";
+    const isSelected = selectedTooth === toothNum;
+    const digit = toothNum % 10;
+    const q = Math.floor(toothNum / 10);
+    const profile = DESKTOP_ARCH_PROFILE[digit] || { y: 0, rot: 0 };
+    const translateY = isUpper ? profile.y : -profile.y;
+
+    let rot = 0;
+    if (q === 1) rot = -profile.rot;
+    else if (q === 2) rot = profile.rot;
+    else if (q === 4) rot = profile.rot;
+    else if (q === 3) rot = -profile.rot;
+
+    return (
+      <div
+        key={toothNum}
+        onClick={() => handleSelectTooth(toothNum)}
+        style={{ transform: `translateY(${translateY}px) rotate(${rot}deg)` }}
+        className={`group flex flex-col items-center cursor-pointer transition-transform duration-200 select-none ${
+          isSelected ? "z-30 scale-110" : "hover:scale-105 z-10"
+        }`}
+      >
+        {isUpper && (
+          <span
+            className={`text-[11px] font-mono font-bold mb-1 transition-colors ${
               isSelected
-                ? "text-blue-400"
-                : "text-slate-500 group-hover:text-slate-300"
+                ? "text-blue-400 font-extrabold"
+                : "text-slate-400 group-hover:text-slate-200"
+            }`}
+          >
+            {toothNum}
+          </span>
+        )}
+
+        {/* كبّرنا الحاوية إلى 42px x 68px */}
+        <div
+          className={`w-10 lg:w-[44px] h-[78px] lg:h-[84px] p-0.5 sm:p-1 rounded-xl transition-all duration-200 ${
+            isSelected
+              ? "bg-blue-950/60 ring-2 ring-blue-500 shadow-[0_0_16px_rgba(59,130,246,0.6)]"
+              : "hover:bg-slate-900/60"
+          }`}
+        >
+          <AnatomicalToothSVG
+            toothNumber={toothNum}
+            condition={condition}
+            isUpper={isUpper}
+          />
+        </div>
+
+        {!isUpper && (
+          <span
+            className={`text-[11px] font-mono font-bold mt-1 transition-colors ${
+              isSelected
+                ? "text-blue-400 font-extrabold"
+                : "text-slate-400 group-hover:text-slate-200"
             }`}
           >
             {toothNum}
@@ -405,14 +441,14 @@ export default function DentalChart({ patientId, showToast }) {
 
   return (
     <div className="space-y-4">
-      {/* 🌟 1. دليل الحالات المدمج (Compact Legend) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950/70 px-4 py-2 rounded-xl border border-slate-800 text-[11px]">
+      {/* 🌟 1. دليل الحالات المختصر */}
+      <div className="flex flex-wrap items-center justify-between gap-1.5 bg-slate-950/70 p-2.5 sm:px-4 sm:py-2 rounded-xl border border-slate-800 text-[10px] sm:text-[11px]">
         <span className="text-slate-400 font-medium">دليل الحالات:</span>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {Object.entries(CONDITIONS).map(([key, cfg]) => (
-            <div key={key} className="flex items-center gap-1.5">
+            <div key={key} className="flex items-center gap-1">
               <span
-                className="w-2.5 h-2.5 rounded-full border border-slate-700"
+                className="w-2 h-2 rounded-full border border-slate-700"
                 style={{ backgroundColor: cfg.color }}
               />
               <span className="text-slate-300 font-medium">{cfg.label}</span>
@@ -421,85 +457,136 @@ export default function DentalChart({ patientId, showToast }) {
         </div>
       </div>
 
-      {/* 🌟 2. لوحة مخطط الأسنان المتجاوبة (Desktop Arch + Mobile Quadrants) */}
-      <div className="bg-slate-950 p-3 sm:p-5 rounded-2xl border border-slate-800 shadow-2xl relative overflow-hidden">
-        {/* مؤشرات الاتجاهات */}
-        <div className="flex justify-between items-center text-[10px] sm:text-[11px] font-bold text-slate-500 px-2 mb-2 select-none">
-          <span className="flex items-center gap-1 text-slate-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500/50"></span>
+      {/* 🌟 2.A: لوحة الموبايل (أرباع الفك - لا تغيير فيها) */}
+      <div className="block md:hidden bg-slate-950 p-3 rounded-2xl border border-slate-800 shadow-xl space-y-3">
+        <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setMobileArchTab("upper")}
+            className={`flex-1 py-1.5 rounded-lg transition-all ${
+              mobileArchTab === "upper"
+                ? "bg-blue-600 text-white shadow-md"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            الفك العلوي (18 → 28)
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileArchTab("lower")}
+            className={`flex-1 py-1.5 rounded-lg transition-all ${
+              mobileArchTab === "lower"
+                ? "bg-blue-600 text-white shadow-md"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            الفك السفلي (48 → 38)
+          </button>
+        </div>
+
+        {mobileArchTab === "upper" ? (
+          <div className="space-y-3">
+            <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-[10px] text-blue-400 block mb-1.5 font-bold">
+                يمين المريض R (الربع الأول: 18 ← 11)
+              </span>
+              <div className="flex justify-between items-center gap-0.5">
+                {QUAD_1.map((num) => renderMobileTooth(num, true))}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-[10px] text-blue-400 block mb-1.5 font-bold">
+                يسار المريض L (الربع الثاني: 21 → 28)
+              </span>
+              <div className="flex justify-between items-center gap-0.5">
+                {QUAD_2.map((num) => renderMobileTooth(num, true))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-[10px] text-blue-400 block mb-1.5 font-bold">
+                يمين المريض R (الربع الرابع: 48 ← 41)
+              </span>
+              <div className="flex justify-between items-center gap-0.5">
+                {QUAD_4.map((num) => renderMobileTooth(num, false))}
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-[10px] text-blue-400 block mb-1.5 font-bold">
+                يسار المريض L (الربع الثالث: 31 → 38)
+              </span>
+              <div className="flex justify-between items-center gap-0.5">
+                {QUAD_3.map((num) => renderMobileTooth(num, false))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 🌟 2.B: لوحة الديسكتوب المتطورة (العنصر الرئيسي مع أسنان واضحة والفكان في مجال الرؤية) */}
+      <div className="hidden md:block bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-2xl relative overflow-hidden">
+        <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 px-3 mb-1 select-none">
+          <span className="flex items-center gap-1.5 text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-blue-500/50"></span>
             يمين المريض (R)
           </span>
-          <span className="text-slate-600 font-medium text-[9px] sm:text-[10px] tracking-widest uppercase">
-            FDI 32 Teeth
+          <span className="text-slate-600 font-medium text-[10px] tracking-widest uppercase">
+            Adult Dentition (32 Teeth)
           </span>
-          <span className="flex items-center gap-1 text-slate-400">
+          <span className="flex items-center gap-1.5 text-slate-400">
             يسار المريض (L)
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500/50"></span>
+            <span className="w-2 h-2 rounded-full bg-blue-500/50"></span>
           </span>
         </div>
 
-        {/* 🦷 الفك العلوي (Maxilla) */}
-        <div className="pt-2 pb-6 md:pb-12 border-b border-slate-900">
-          <span className="text-[10px] text-slate-500 block text-center mb-2 font-medium md:hidden">
-            الفك العلوي
-          </span>
-          <div className="flex flex-col md:flex-row justify-center items-center gap-3 md:gap-0">
-            {/* ربع 1 (18 -> 11) */}
-            <div className="flex justify-center items-end gap-1 sm:gap-1.5 w-full md:w-auto">
-              {QUAD_1.map((num) => renderArchTooth(num, true))}
+        {/* الفك العلوي - مسافة مريحة عند خط الإطباق */}
+        <div className="pt-2 pb-10 border-b border-slate-900">
+          <div className="flex justify-center items-end">
+            <div className="flex items-end gap-1.5">
+              {QUAD_1.map((num) => renderDesktopTooth(num, true))}
             </div>
-
-            {/* فاصل خط المنتصف */}
-            <div className="hidden md:block w-[1px] h-8 bg-blue-500/20 mx-1 self-end mb-2 shrink-0" />
-
-            {/* ربع 2 (21 -> 28) */}
-            <div className="flex justify-center items-end gap-1 sm:gap-1.5 w-full md:w-auto">
-              {QUAD_2.map((num) => renderArchTooth(num, true))}
+            <div className="w-[1px] h-9 bg-blue-500/20 mx-1 self-end mb-2 shrink-0" />
+            <div className="flex items-end gap-1.5">
+              {QUAD_2.map((num) => renderDesktopTooth(num, true))}
             </div>
           </div>
         </div>
 
-        {/* 🦷 الفك السفلي (Mandible) */}
-        <div className="pt-6 md:pt-12 pb-2">
-          <span className="text-[10px] text-slate-500 block text-center mb-2 font-medium md:hidden">
-            الفك السفلي
-          </span>
-          <div className="flex flex-col md:flex-row justify-center items-center gap-3 md:gap-0">
-            {/* ربع 4 (48 -> 41) */}
-            <div className="flex justify-center items-start gap-1 sm:gap-1.5 w-full md:w-auto">
-              {QUAD_4.map((num) => renderArchTooth(num, false))}
+        {/* الفك السفلي - مسافة مريحة عند خط الإطباق */}
+        <div className="pt-10 pb-2">
+          <div className="flex justify-center items-start">
+            <div className="flex items-start gap-1.5">
+              {QUAD_4.map((num) => renderDesktopTooth(num, false))}
             </div>
-
-            {/* فاصل خط المنتصف */}
-            <div className="hidden md:block w-[1px] h-8 bg-blue-500/20 mx-1 self-start mt-2 shrink-0" />
-
-            {/* ربع 3 (31 -> 38) */}
-            <div className="flex justify-center items-start gap-1 sm:gap-1.5 w-full md:w-auto">
-              {QUAD_3.map((num) => renderArchTooth(num, false))}
+            <div className="w-[1px] h-9 bg-blue-500/20 mx-1 self-start mt-2 shrink-0" />
+            <div className="flex items-start gap-1.5">
+              {QUAD_3.map((num) => renderDesktopTooth(num, false))}
             </div>
           </div>
         </div>
       </div>
 
-      {/* 🌟 3. فحص وتعديل السن المختار + السجل التاريخي (Tooth Inspector & Timeline) */}
+      {/* 🌟 3. فحص السن وتاريخه (ملموم ومتمركز بشكل أنيق في المنتصف) */}
       {selectedTooth && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
-          {/* تعديل حالة السن */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>السن رقم:</span>
-                  <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs">
-                    #{selectedTooth}
-                  </span>
-                  <span className="text-xs text-slate-400 font-normal">
-                    {getToothArabicName(selectedTooth)}
-                  </span>
-                </h3>
-              </div>
+        <div className="max-w-full md:max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-5 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+          {/* عمود الفورم الملموم */}
+          <div className="md:col-span-5 space-y-2.5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+                <span>السن:</span>
+                <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs">
+                  #{selectedTooth}
+                </span>
+                <span className="text-[11px] text-slate-400 font-normal truncate">
+                  {getToothArabicName(selectedTooth)}
+                </span>
+              </h3>
               <span
-                className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
                   CONDITIONS[teethMap[selectedTooth]?.condition || "sound"]
                     ?.badge
                 }`}
@@ -511,7 +598,7 @@ export default function DentalChart({ patientId, showToast }) {
               </span>
             </div>
 
-            <form onSubmit={handleSubmitTooth} className="space-y-3">
+            <form onSubmit={handleSubmitTooth} className="space-y-2.5">
               <div>
                 <label className="block text-[11px] font-medium text-slate-300 mb-1">
                   تغيير حالة السن *
@@ -537,7 +624,7 @@ export default function DentalChart({ patientId, showToast }) {
                 </label>
                 <input
                   type="text"
-                  placeholder="مثال: حشو كومبوزيت ضوئي، علاج جذور جلسة 1..."
+                  placeholder="مثال: حشو كومبوزيت، علاج جذور..."
                   value={toothForm.procedure_name}
                   onChange={(e) =>
                     setToothForm({
@@ -555,7 +642,7 @@ export default function DentalChart({ patientId, showToast }) {
                 </label>
                 <textarea
                   rows="2"
-                  placeholder="مثال: تسوس عميق، ألم مع الساخن والبارد..."
+                  placeholder="ملاحظات السن..."
                   value={toothForm.notes}
                   onChange={(e) =>
                     setToothForm({ ...toothForm, notes: e.target.value })
@@ -567,35 +654,35 @@ export default function DentalChart({ patientId, showToast }) {
               <button
                 type="submit"
                 disabled={updateToothMutation.isPending}
-                className="w-full flex items-center justify-center gap-2 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 shadow-md shadow-blue-600/20"
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 shadow-md shadow-blue-600/20"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>
                   {updateToothMutation.isPending
                     ? "جاري الحفظ..."
-                    : "حفظ الحالة وتوثيق الإجراء"}
+                    : "حفظ وتوثيق الحالة"}
                 </span>
               </button>
             </form>
           </div>
 
-          {/* سجل السن (Tooth Timeline) */}
-          <div className="space-y-2.5">
-            <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+          {/* عمود الـ Timeline */}
+          <div className="md:col-span-7 flex flex-col border-t md:border-t-0 md:border-r border-slate-800/80 pt-3 md:pt-0 md:pr-4">
+            <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 border-b border-slate-800/80 pb-2 shrink-0">
               <History className="w-3.5 h-3.5 text-purple-400" />
               سجل تطور السن #{selectedTooth} (Timeline)
             </h4>
 
             {isLoadingHistory ? (
-              <div className="py-6 flex justify-center text-slate-400">
+              <div className="py-8 flex justify-center text-slate-400 my-auto">
                 <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
               </div>
             ) : toothHistory.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 text-xs bg-slate-900/40 rounded-xl border border-slate-800/80">
+              <div className="py-8 text-center text-slate-500 text-xs bg-slate-900/40 rounded-xl border border-slate-800/80 my-auto">
                 لا توجد حركات مسجلة سابقاً لهذا السن.
               </div>
             ) : (
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              <div className="space-y-2 flex-1 max-h-[340px] md:max-h-[380px] overflow-y-auto pr-1">
                 {toothHistory.map((h) => (
                   <div
                     key={h.id}
@@ -616,17 +703,14 @@ export default function DentalChart({ patientId, showToast }) {
                         {new Date(h.created_at).toLocaleString("ar-EG")}
                       </span>
                     </div>
-
                     {h.procedure_name && (
                       <p className="font-semibold text-white text-xs">
                         {h.procedure_name}
                       </p>
                     )}
-
                     {h.notes && (
                       <p className="text-slate-400 text-[11px]">{h.notes}</p>
                     )}
-
                     <div className="flex items-center gap-1 text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
                       <User className="w-3 h-3 text-slate-400" />
                       <span>د. {h.doctor_name || "العيادة"}</span>
