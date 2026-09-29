@@ -8,17 +8,12 @@ import {
   Search,
   Receipt,
   DollarSign,
-  Ban,
   Check,
   X,
   Trash2,
   Loader2,
   FileText,
   UserPlus,
-  User,
-  Calendar,
-  Phone,
-  Clock,
   Wallet,
   Printer,
   Archive,
@@ -75,6 +70,7 @@ export default function Invoices() {
     appointment_date: getCurrentDateTimeLocal(),
     items: [
       {
+        _id: crypto.randomUUID(),
         description: "كشف أسنان أولي",
         quantity: 1,
         unit_price: 200,
@@ -202,20 +198,6 @@ export default function Invoices() {
     },
   });
 
-  // 8. إلغاء فاتورة
-  const cancelInvoiceMutation = useMutation({
-    mutationFn: async (id) => {
-      const res = await api.patch(`/invoices/${id}/cancel`);
-      return res.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoices"] });
-    },
-    onError: (err) => {
-      alert(err.response?.data?.error || "فشل إلغاء الفاتورة");
-    },
-  });
-
   const archiveInvoiceMutation = useMutation({
     mutationFn: async (invoiceId) => {
       const res = await api.patch(`/invoices/${invoiceId}/archive`);
@@ -250,6 +232,7 @@ export default function Invoices() {
       items: [
         ...prev.items,
         {
+          _id: crypto.randomUUID(),
           description: "",
           quantity: 1,
           unit_price: "",
@@ -268,19 +251,30 @@ export default function Invoices() {
   };
 
   const handleItemChange = (index, field, value) => {
-    const updated = [...invoiceForm.items];
-    updated[index][field] = value;
-    setInvoiceForm({ ...invoiceForm, items: updated });
+    setInvoiceForm((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) =>
+        i === index ? { ...item, [field]: value } : item
+      ),
+    }));
   };
 
   const handleSelectProcedure = (index, codeId) => {
     const selected = procedureCodes.find((c) => c.id === codeId);
     if (!selected) return;
-    const updated = [...invoiceForm.items];
-    updated[index].description = selected.description;
-    updated[index].unit_price = parseFloat(selected.default_price);
-    updated[index].procedure_code_id = selected.id;
-    setInvoiceForm({ ...invoiceForm, items: updated });
+    setInvoiceForm((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              description: selected.description,
+              unit_price: parseFloat(selected.default_price),
+              procedure_code_id: selected.id,
+            }
+          : item
+      ),
+    }));
   };
 
   const calculatedTotal = invoiceForm.items.reduce((sum, item) => {
@@ -300,8 +294,10 @@ export default function Invoices() {
       patient_id: invoiceForm.patient_id,
       appointment_id: invoiceForm.appointment_id || null,
       doctor_id: invoiceForm.doctor_id || null,
-      appointment_date: invoiceForm.appointment_date || null,
-      items: invoiceForm.items,
+      appointment_date: invoiceForm.appointment_date
+        ? new Date(invoiceForm.appointment_date).toISOString()
+        : null,
+      items: invoiceForm.items.map(({ _id, ...rest }) => rest),
       initial_payment: invoiceForm.initial_payment.amount
         ? invoiceForm.initial_payment
         : null,
@@ -369,128 +365,149 @@ export default function Invoices() {
     other: "أخرى",
   };
 
+  // دالة حماية من الـ XSS لتعقيم النصوص قبل طباعتها
+  const escapeHtml = (str) => {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  };
+
   const handlePrintInvoice = () => {
     if (!invoiceDetails && !selectedInvoice) return;
     const inv = invoiceDetails || selectedInvoice;
 
     const printWindow = window.open("", "_blank", "width=850,height=900");
     if (!printWindow) {
-      window.print();
+      alert(
+        "المتصفح منع فتح نافذة الطباعة. من فضلك اسمح بالنوافذ المنبثقة (popups) لهذا الموقع من إعدادات المتصفح ثم حاول تاني."
+      );
       return;
     }
 
+    // تعقيم البيانات
+    const safePatientName = escapeHtml(inv.patient_name);
+    const safePatientPhone = escapeHtml(inv.patient_phone || "-");
+    const safeDoctorName = escapeHtml(inv.doctor_name || "كشف عام");
+    const safeInvoiceId = escapeHtml(inv.id);
+    const safeStatus =
+      inv.status === "paid"
+        ? "مدفوعة بالكامل"
+        : inv.status === "partially_paid"
+        ? "مدفوعة جزئياً"
+        : inv.status === "cancelled"
+        ? "ملغاة"
+        : "غير مدفوعة";
+
     printWindow.document.write(`
-      <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
-        <head>
-          <meta charset="utf-8" />
-          <title>فاتورة ضريبية #${inv.id}</title>
-          <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #0f172a; margin: 0; }
-            .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px; }
-            .clinic-name { font-size: 26px; font-weight: bold; color: #1e3a8a; margin-bottom: 4px; }
-            .sub { font-size: 13px; color: #64748b; }
-            .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 25px; font-size: 13px; line-height: 1.8; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-            th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: right; font-size: 13px; }
-            th { background: #f1f5f9; color: #475569; font-weight: 600; }
-            .summary { width: 320px; margin-right: auto; margin-left: 0; font-size: 14px; margin-top: 20px; }
-            .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #cbd5e1; }
-            .total { font-weight: bold; font-size: 17px; color: #1e3a8a; border-top: 2px solid #0f172a; border-bottom: none; padding-top: 10px; margin-top: 6px; }
-            .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="clinic-name">عيادة الأسنان التخصصية</div>
-            <div class="sub">فاتورة علاج رقم #${inv.id} • بتاريخ ${new Date(
+          <!DOCTYPE html>
+          <html dir="rtl" lang="ar">
+            <head>
+              <meta charset="utf-8" />
+              <title>فاتورة ضريبية #${safeInvoiceId}</title>
+              <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #0f172a; margin: 0; }
+                .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px; }
+                .clinic-name { font-size: 26px; font-weight: bold; color: #1e3a8a; margin-bottom: 4px; }
+                .sub { font-size: 13px; color: #64748b; }
+                .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 25px; font-size: 13px; line-height: 1.8; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+                th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: right; font-size: 13px; }
+                th { background: #f1f5f9; color: #475569; font-weight: 600; }
+                .summary { width: 320px; margin-right: auto; margin-left: 0; font-size: 14px; margin-top: 20px; }
+                .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #cbd5e1; }
+                .total { font-weight: bold; font-size: 17px; color: #1e3a8a; border-top: 2px solid #0f172a; border-bottom: none; padding-top: 10px; margin-top: 6px; }
+                .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <div class="clinic-name">عيادة الأسنان التخصصية</div>
+                <div class="sub">فاتورة علاج رقم #${safeInvoiceId} • بتاريخ ${new Date(
       inv.created_at
     ).toLocaleDateString("en-GB")}</div>
-          </div>
-          <div class="meta-box">
-            <div>
-              <strong>اسم المريض:</strong> ${inv.patient_name}<br/>
-              <strong>رقم الهاتف:</strong> ${inv.patient_phone || "-"}<br/>
-            </div>
-            <div>
-              <strong>الطبيب المعالج:</strong> د. ${
-                inv.doctor_name || "كشف عام"
-              }<br/>
-              <strong>حالة الفاتورة:</strong> ${
-                inv.status === "paid"
-                  ? "مدفوعة بالكامل"
-                  : inv.status === "partially_paid"
-                  ? "مدفوعة جزئياً"
-                  : "غير مدفوعة"
-              }<br/>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>البند / الخدمة</th>
-                <th style="text-align: center;">الكمية</th>
-                <th style="text-align: left;">سعر الوحدة</th>
-                <th style="text-align: left;">الإجمالي</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${(
-                inv.items || [
-                  {
-                    description: "كشف وعلاج أسنان",
-                    quantity: 1,
-                    unit_price: inv.total_amount,
-                    total_price: inv.total_amount,
-                  },
-                ]
-              )
-                .map(
-                  (it) => `
-                <tr>
-                  <td>${it.description}</td>
-                  <td style="text-align: center;">${it.quantity}</td>
-                  <td style="text-align: left;">${parseFloat(
-                    it.unit_price
-                  ).toLocaleString("en-US")} ج.م</td>
-                  <td style="text-align: left; font-weight: bold;">${parseFloat(
-                    it.total_price
-                  ).toLocaleString("en-US")} ج.م</td>
-                </tr>
-              `
-                )
-                .join("")}
-            </tbody>
-          </table>
-          <div class="summary">
-            <div class="summary-row">
-              <span>إجمالي الفاتورة:</span>
-              <span>${parseFloat(inv.total_amount || 0).toLocaleString(
-                "en-US"
-              )} ج.م</span>
-            </div>
-            <div class="summary-row" style="color: #059669;">
-              <span>المدفوع:</span>
-              <span>${parseFloat(inv.paid_amount || 0).toLocaleString(
-                "en-US"
-              )} ج.م</span>
-            </div>
-            <div class="summary-row total" style="color: #dc2626;">
-              <span>المتبقي:</span>
-              <span>${parseFloat(inv.remaining_amount || 0).toLocaleString(
-                "en-US"
-              )} ج.م</span>
-            </div>
-          </div>
-          <div class="footer">
-            نتمنى لكم دوام الصحة والعافية • نسعد دائماً بخدمتكم
-          </div>
-          <script>
-            window.onload = function() { window.print(); window.close(); }
-          </script>
-        </body>
-      </html>
-    `);
+              </div>
+              <div class="meta-box">
+                <div>
+                  <strong>اسم المريض:</strong> ${safePatientName}<br/>
+                  <strong>رقم الهاتف:</strong> ${safePatientPhone}<br/>
+                </div>
+                <div>
+                  <strong>الطبيب المعالج:</strong> د. ${safeDoctorName}<br/>
+                  <strong>حالة الفاتورة:</strong> ${safeStatus}<br/>
+                </div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>البند / الخدمة</th>
+                    <th style="text-align: center;">الكمية</th>
+                    <th style="text-align: left;">سعر الوحدة</th>
+                    <th style="text-align: left;">الإجمالي</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(
+                    inv.items || [
+                      {
+                        description: "كشف وعلاج أسنان",
+                        quantity: 1,
+                        unit_price: inv.total_amount,
+                        total_price: inv.total_amount,
+                      },
+                    ]
+                  )
+                    .map(
+                      (it) => `
+                    <tr>
+                      <td>${escapeHtml(it.description)}</td>
+                      <td style="text-align: center;">${
+                        Number(it.quantity) || 1
+                      }</td>
+                      <td style="text-align: left;">${parseFloat(
+                        it.unit_price || 0
+                      ).toLocaleString("en-US")} ج.م</td>
+                      <td style="text-align: left; font-weight: bold;">${parseFloat(
+                        it.total_price || 0
+                      ).toLocaleString("en-US")} ج.م</td>
+                    </tr>
+                  `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+              <div class="summary">
+                <div class="summary-row">
+                  <span>إجمالي الفاتورة:</span>
+                  <span>${parseFloat(inv.total_amount || 0).toLocaleString(
+                    "en-US"
+                  )} ج.م</span>
+                </div>
+                <div class="summary-row" style="color: #059669;">
+                  <span>المدفوع:</span>
+                  <span>${parseFloat(inv.paid_amount || 0).toLocaleString(
+                    "en-US"
+                  )} ج.م</span>
+                </div>
+                <div class="summary-row total" style="color: #dc2626;">
+                  <span>المتبقي:</span>
+                  <span>${parseFloat(inv.remaining_amount || 0).toLocaleString(
+                    "en-US"
+                  )} ج.م</span>
+                </div>
+              </div>
+              <div class="footer">
+                نتمنى لكم دوام الصحة والعافية • نسعد دائماً بخدمتكم
+              </div>
+              <script>
+                window.onload = function() { window.print(); window.close(); }
+              </script>
+            </body>
+          </html>
+        `);
     printWindow.document.close();
   };
 
@@ -690,25 +707,6 @@ export default function Invoices() {
                               <span>تحصيل</span>
                             </button>
                           )}
-
-                          {inv.status === "unpaid" &&
-                            user?.role === "ClinicAdmin" && (
-                              <button
-                                title="إلغاء الفاتورة"
-                                onClick={() => {
-                                  if (
-                                    confirm(
-                                      "هل أنت متأكد من إلغاء هذه الفاتورة؟"
-                                    )
-                                  ) {
-                                    cancelInvoiceMutation.mutate(inv.id);
-                                  }
-                                }}
-                                className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                              >
-                                <Ban className="w-4 h-4" />
-                              </button>
-                            )}
                         </div>
                       </td>
                     </tr>
@@ -913,7 +911,7 @@ export default function Invoices() {
 
                 {invoiceForm.items.map((item, idx) => (
                   <div
-                    key={idx}
+                    key={item._id}
                     className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3"
                   >
                     {procedureCodes.length > 0 && (
@@ -1055,6 +1053,7 @@ export default function Invoices() {
                       <option value="bank_transfer">
                         محفظة / فودافون كاش 📱
                       </option>
+                      <option value="other">أخرى</option>
                     </select>
                   </div>
                 </div>

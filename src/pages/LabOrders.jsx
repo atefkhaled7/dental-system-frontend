@@ -6,19 +6,12 @@ import {
   Plus,
   Search,
   Building2,
-  FileCode2,
-  CheckCircle2,
-  PackageCheck,
-  Clock,
   AlertTriangle,
   X,
   Check,
   Loader2,
-  Calendar,
   Save,
-  Ban,
   FileText,
-  UserPlus,
 } from "lucide-react";
 
 export default function LabOrders() {

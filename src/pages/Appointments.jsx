@@ -144,7 +144,7 @@ export default function Appointments() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       setIsModalOpen(false);
       setFormData({
         patient_id: "",
@@ -274,7 +274,10 @@ export default function Appointments() {
       alert("يرجى اختيار مريض من القائمة");
       return;
     }
-    createAppointmentMutation.mutate(formData);
+    createAppointmentMutation.mutate({
+      ...formData,
+      appointment_date: new Date(formData.appointment_date).toISOString(),
+    });
   };
 
   const handleQuickPatientSubmit = (e) => {
@@ -969,7 +972,7 @@ export default function Appointments() {
                 onClick={() =>
                   rescheduleMutation.mutate({
                     id: rescheduleData.appointmentId,
-                    newDate: rescheduleData.newDate,
+                    newDate: new Date(rescheduleData.newDate).toISOString(),
                   })
                 }
                 className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
