@@ -18,7 +18,56 @@ import {
   Printer,
   Archive,
   AlertTriangle,
+  Send,
+  Copy,
+  ExternalLink,
+  Smartphone,
 } from "lucide-react";
+
+const PAYMENT_STATUS_CONFIG = {
+  paid: {
+    label: "مدفوع",
+    badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    icon: "✅",
+  },
+  pending: {
+    label: "معلق",
+    badge: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    icon: "🟡",
+  },
+  failed: {
+    label: "فشل",
+    badge: "bg-red-500/10 text-red-400 border-red-500/20",
+    icon: "❌",
+  },
+  cancelled: {
+    label: "ملغي",
+    badge: "bg-slate-700/30 text-slate-400 border-slate-700",
+    icon: "⚪",
+  },
+  refunded: {
+    label: "مسترد",
+    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    icon: "🔵",
+  },
+  expired: {
+    label: "منتهي",
+    badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+    icon: "⏰",
+  },
+};
+
+export function PaymentStatusBadge({ status }) {
+  const config = PAYMENT_STATUS_CONFIG[status] || PAYMENT_STATUS_CONFIG.pending;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.badge}`}
+    >
+      <span>{config.icon}</span>
+      <span>{config.label}</span>
+    </span>
+  );
+}
 
 export default function Invoices() {
   const queryClient = useQueryClient();
@@ -45,6 +94,70 @@ export default function Invoices() {
     phone_number: "",
     gender: "Male",
   });
+
+  // التحكم في مودال الدفع أونلاين
+  const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
+  const [onlineSelectedInvoice, setOnlineSelectedInvoice] = useState(null);
+  const [paymentType, setPaymentType] = useState("full"); // 'full' | 'custom'
+  const [customAmount, setCustomAmount] = useState("");
+  const [generatedLinkData, setGeneratedLinkData] = useState(null); // تخزين نتيجة الرابط بعد توليده
+  const [isCopied, setIsCopied] = useState(false);
+
+  // Mutation توليد رابط الدفع
+  const createOnlinePaymentMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await api.post("/payments/online/create", payload);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      // التحول مباشرة لواجهة النجاح جوه نفس المودال
+      setGeneratedLinkData(data);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (err) => {
+      alert(err.response?.data?.error || "فشل إنشاء رابط الدفع");
+    },
+  });
+
+  // فتح المودال وتصفير البيانات
+  const handleOpenOnlineModal = (inv) => {
+    setOnlineSelectedInvoice(inv);
+    setPaymentType("full");
+    setCustomAmount("");
+    setGeneratedLinkData(null);
+    setIsCopied(false);
+    setIsOnlineModalOpen(true);
+  };
+
+  // إرسال طلب توليد الرابط
+  const handleGenerateOnlineLink = (e) => {
+    e.preventDefault();
+    const remaining =
+      parseFloat(onlineSelectedInvoice.remaining_amount) ||
+      parseFloat(onlineSelectedInvoice.total_amount);
+
+    const finalAmount =
+      paymentType === "full" ? remaining : parseFloat(customAmount);
+
+    if (!finalAmount || finalAmount <= 0) {
+      alert("يرجى إدخال مبلغ صحيح");
+      return;
+    }
+
+    createOnlinePaymentMutation.mutate({
+      invoice_id: onlineSelectedInvoice.id,
+      amount: finalAmount,
+    });
+  };
+
+  // نسخ الرابط للـ Clipboard
+  const handleCopyLink = () => {
+    if (generatedLinkData?.payment_url) {
+      navigator.clipboard.writeText(generatedLinkData.payment_url);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
 
   // جلب الدكاترة لاختيار الطبيب المعالج
   const { data: doctors = [] } = useQuery({
@@ -698,14 +811,27 @@ export default function Invoices() {
 
                           {(inv.status === "unpaid" ||
                             inv.status === "partially_paid") && (
-                            <button
-                              title="تسجيل دفعة (تحصيل)"
-                              onClick={() => handleOpenPayment(inv)}
-                              className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-medium transition-colors"
-                            >
-                              <DollarSign className="w-4 h-4" />
-                              <span>تحصيل</span>
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {/* الزرار اليدوي الحالي */}
+                              <button
+                                title="تسجيل دفعة (تحصيل نقدي)"
+                                onClick={() => handleOpenPayment(inv)}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>تحصيل</span>
+                              </button>
+
+                              {/* الزرار الجديد للأونلاين والواتساب */}
+                              <button
+                                title="إنشاء رابط دفع إلكتروني وواتساب"
+                                onClick={() => handleOpenOnlineModal(inv)}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>رابط دفع</span>
+                              </button>
+                            </div>
                           )}
                         </div>
                       </td>
@@ -1203,30 +1329,44 @@ export default function Invoices() {
                       <table className="w-full text-right text-xs">
                         <thead className="bg-slate-800 text-slate-400">
                           <tr>
-                            <th className="p-2.5">المبلغ</th>
-                            <th className="p-2.5">طريقة الدفع</th>
-                            <th className="p-2.5">تاريخ ووقت السداد</th>
-                            <th className="p-2.5">ملاحظات</th>
+                            <th className="py-2 px-3 text-right">المبلغ</th>
+                            <th className="py-2 px-3 text-right">
+                              طريقة الدفع
+                            </th>
+                            <th className="py-2 px-3 text-center">الحالة</th>
+                            <th className="py-2 px-3 text-right">
+                              تاريخ ووقت السداد
+                            </th>
+                            <th className="py-2 px-3 text-right">ملاحظات</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 text-slate-300">
                           {invoiceDetails?.payments?.map((pm) => (
                             <tr key={pm.id}>
-                              <td className="p-2.5 font-mono font-bold text-emerald-400">
+                              <td className="py-2 px-3 font-mono font-bold text-emerald-400">
                                 {parseFloat(pm.amount).toLocaleString("en-US")}{" "}
                                 ج.م
                               </td>
-                              <td className="p-2.5">
+
+                              <td className="py-2 px-3 text-slate-300">
                                 {paymentMethodConfig[pm.payment_method] ||
                                   pm.payment_method}
                               </td>
+
+                              <td className="py-2 px-3 text-center">
+                                <PaymentStatusBadge status={pm.status} />
+                              </td>
+
                               <td
-                                className="p-2.5 font-mono text-slate-400"
+                                className="py-2 px-3 text-xs text-slate-400 font-mono"
                                 dir="ltr"
                               >
-                                {new Date(pm.paid_at).toLocaleString("en-GB")}
+                                {new Date(
+                                  pm.paid_at || pm.created_at
+                                ).toLocaleString("ar-EG")}
                               </td>
-                              <td className="p-2.5 text-slate-500">
+
+                              <td className="py-2 px-3 text-xs text-slate-400">
                                 {pm.notes || "-"}
                               </td>
                             </tr>
@@ -1412,6 +1552,242 @@ export default function Invoices() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isOnlineModalOpen && onlineSelectedInvoice && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl relative">
+            {/* رأس المودال */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-purple-400" />
+                <span>دفع إلكتروني - {onlineSelectedInvoice.patient_name}</span>
+              </h2>
+              <button
+                onClick={() => setIsOnlineModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* الحالة 1: نموذج اختيار المبلغ وتوليد الرابط */}
+            {!generatedLinkData ? (
+              <form onSubmit={handleGenerateOnlineLink} className="space-y-4">
+                {/* المتبقي ورقم الهاتف */}
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-400">إجمالي المتبقي:</span>
+                    <span className="font-bold font-mono text-red-400 text-base">
+                      {(
+                        parseFloat(onlineSelectedInvoice.remaining_amount) ||
+                        parseFloat(onlineSelectedInvoice.total_amount)
+                      ).toLocaleString("en-US")}{" "}
+                      ج.م
+                    </span>
+                  </div>
+                  {onlineSelectedInvoice.patient_phone && (
+                    <div className="flex justify-between items-center text-xs pt-2 border-t border-slate-800/80">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Smartphone className="w-3.5 h-3.5 text-slate-500" />
+                        رقم المريض:
+                      </span>
+                      <span className="font-mono text-slate-300 dir-ltr">
+                        {onlineSelectedInvoice.patient_phone}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* خيارات تحديد المبلغ */}
+                <div className="space-y-2.5">
+                  <label className="block text-xs font-medium text-slate-300">
+                    قيمة الدفعة المطلوبة:
+                  </label>
+
+                  {/* الخيار 1: كامل المتبقي */}
+                  <label
+                    onClick={() => setPaymentType("full")}
+                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                      paymentType === "full"
+                        ? "bg-purple-500/10 border-purple-500/40 text-purple-200"
+                        : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="paymentType"
+                        checked={paymentType === "full"}
+                        onChange={() => setPaymentType("full")}
+                        className="accent-purple-500"
+                      />
+                      <span className="text-sm font-medium">
+                        المتبقي بالكامل
+                      </span>
+                    </div>
+                    <span className="font-mono font-bold text-sm">
+                      {(
+                        parseFloat(onlineSelectedInvoice.remaining_amount) ||
+                        parseFloat(onlineSelectedInvoice.total_amount)
+                      ).toLocaleString("en-US")}{" "}
+                      ج.م
+                    </span>
+                  </label>
+
+                  {/* الخيار 2: مبلغ مخصص */}
+                  <div
+                    className={`p-3 rounded-xl border transition-all ${
+                      paymentType === "custom"
+                        ? "bg-purple-500/10 border-purple-500/40 text-purple-200"
+                        : "bg-slate-950 border-slate-800 text-slate-400"
+                    }`}
+                  >
+                    <label
+                      onClick={() => setPaymentType("custom")}
+                      className="flex items-center gap-2 cursor-pointer mb-2"
+                    >
+                      <input
+                        type="radio"
+                        name="paymentType"
+                        checked={paymentType === "custom"}
+                        onChange={() => setPaymentType("custom")}
+                        className="accent-purple-500"
+                      />
+                      <span className="text-sm font-medium">
+                        مبلغ مخصص (عربون / دفعة)
+                      </span>
+                    </label>
+
+                    {paymentType === "custom" && (
+                      <div className="relative mt-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="1"
+                          max={
+                            parseFloat(
+                              onlineSelectedInvoice.remaining_amount
+                            ) || parseFloat(onlineSelectedInvoice.total_amount)
+                          }
+                          placeholder="أدخل المبلغ المطلوب..."
+                          value={customAmount}
+                          onChange={(e) => setCustomAmount(e.target.value)}
+                          required
+                          autoFocus
+                          className="w-full bg-slate-900 border border-purple-500/30 rounded-lg px-3 py-2 text-white font-mono text-base focus:outline-none focus:border-purple-500"
+                        />
+                        <span className="absolute left-3 top-2.5 text-xs text-slate-400">
+                          ج.م
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* أزرار الإجراء */}
+                <div className="flex gap-3 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsOnlineModalOpen(false)}
+                    className="flex-1 py-2.5 border border-slate-700 hover:bg-slate-800 text-slate-400 rounded-xl text-sm transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createOnlinePaymentMutation.isPending}
+                    className="flex-1 bg-purple-600 hover:bg-purple-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    {createOnlinePaymentMutation.isPending ? (
+                      <span>جاري توليد الرابط...</span>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>توليد الرابط</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* الحالة 2: شاشة النجاح والأزرار التفاعلية بعد التوليد */
+              <div className="space-y-4 py-2">
+                <div className="text-center space-y-1">
+                  <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-2 text-xl">
+                    ✓
+                  </div>
+                  <h3 className="text-base font-bold text-white">
+                    تم إنشاء رابط الدفع بنجاح
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    المبلغ المطلوب:{" "}
+                    <span className="font-bold text-white font-mono">
+                      {generatedLinkData.amount} ج.م
+                    </span>
+                  </p>
+                </div>
+
+                <div className="space-y-2.5 pt-2">
+                  {/* زرار الواتساب الأخضر المباشر */}
+                  {generatedLinkData.whatsapp_url && (
+                    <a
+                      href={generatedLinkData.whatsapp_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl text-sm transition-all shadow-lg shadow-emerald-950/40"
+                    >
+                      <span className="text-base">📲</span>
+                      <span>إرسال عبر واتساب العيادة</span>
+                    </a>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* زرار نسخ الرابط */}
+                    <button
+                      type="button"
+                      onClick={handleCopyLink}
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-slate-600 text-slate-200 rounded-xl text-xs font-medium transition-colors"
+                    >
+                      {isCopied ? (
+                        <>
+                          <span className="text-emerald-400">✓</span>
+                          <span className="text-emerald-400">تم النسخ!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>نسخ الرابط</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* زرار فتح صفحة الدفع مباشرة */}
+                    <a
+                      href={generatedLinkData.payment_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-slate-600 text-purple-300 rounded-xl text-xs font-medium transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>فتح الدفع ↗</span>
+                    </a>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsOnlineModalOpen(false)}
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition-colors"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

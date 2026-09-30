@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
-import { Clock, History, User, Loader2, Save } from "lucide-react";
-
+import { Clock, History, User, Loader2, Save, Camera } from "lucide-react";
 // تعريف الحالات والألوان
 const CONDITIONS = {
   sound: {
@@ -239,7 +238,11 @@ const DESKTOP_ARCH_PROFILE = {
   8: { y: 24, rot: 13 },
 };
 
-export default function DentalChart({ patientId, showToast }) {
+export default function DentalChart({
+  patientId,
+  showToast,
+  onNavigateToImages,
+}) {
   const queryClient = useQueryClient();
   const [selectedTooth, setSelectedTooth] = useState(16);
   const [mobileArchTab, setMobileArchTab] = useState("upper");
@@ -249,6 +252,25 @@ export default function DentalChart({ patientId, showToast }) {
     procedure_name: "",
     notes: "",
   });
+
+  const { data: patientImages = [] } = useQuery({
+    queryKey: ["patient-images", patientId],
+    queryFn: async () => {
+      const res = await api.get(`/patient-images/patients/${patientId}`);
+      return res.data.images || [];
+    },
+    enabled: !!patientId,
+  });
+
+  const teethWithImages = new Set(
+    patientImages
+      .filter((img) => img.tooth_number)
+      .map((img) => Number(img.tooth_number))
+  );
+
+  const selectedToothImagesCount = patientImages.filter(
+    (img) => Number(img.tooth_number) === selectedTooth
+  ).length;
 
   const { data: teeth = [], isLoading } = useQuery({
     queryKey: ["patient-teeth", patientId],
@@ -327,13 +349,22 @@ export default function DentalChart({ patientId, showToast }) {
         }`}
       >
         {isUpper && (
-          <span
-            className={`text-[10px] font-mono font-bold mb-0.5 ${
-              isSelected ? "text-blue-400" : "text-slate-400"
-            }`}
-          >
-            {toothNum}
-          </span>
+          <div className="relative flex items-center gap-1">
+            <span
+              className={`text-[10px] font-mono font-bold ${
+                isSelected ? "text-blue-400" : "text-slate-400"
+              }`}
+            >
+              {toothNum}
+            </span>
+
+            {teethWithImages.has(toothNum) && (
+              <Camera
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-0.5 w-4 h-4 text-purple-400"
+                title="يوجد أشعة لهذا السن"
+              />
+            )}
+          </div>
         )}
 
         {/* تكبير السن باعتدال للأناقة والوضوح (44px x 76px) */}
@@ -352,13 +383,22 @@ export default function DentalChart({ patientId, showToast }) {
         </div>
 
         {!isUpper && (
-          <span
-            className={`text-[10px] font-mono font-bold mt-0.5 ${
-              isSelected ? "text-blue-400" : "text-slate-400"
-            }`}
-          >
-            {toothNum}
-          </span>
+          <div className="relative flex items-center gap-1">
+            <span
+              className={`text-[11px] font-mono font-bold ${
+                isSelected ? "text-blue-400" : "text-slate-400"
+              }`}
+            >
+              {toothNum}
+            </span>
+
+            {teethWithImages.has(toothNum) && (
+              <Camera
+                className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 w-4 h-4 text-purple-400"
+                title="يوجد أشعة لهذا السن"
+              />
+            )}
+          </div>
         )}
       </div>
     );
@@ -390,15 +430,24 @@ export default function DentalChart({ patientId, showToast }) {
         }`}
       >
         {isUpper && (
-          <span
-            className={`text-[11px] font-mono font-bold mb-1 transition-colors ${
-              isSelected
-                ? "text-blue-400 font-extrabold"
-                : "text-slate-400 group-hover:text-slate-200"
-            }`}
-          >
-            {toothNum}
-          </span>
+          <div className="relative flex items-center gap-1 mb-1">
+            <span
+              className={`text-[11px] font-mono font-bold transition-colors ${
+                isSelected
+                  ? "text-blue-400 font-extrabold"
+                  : "text-slate-400 group-hover:text-slate-200"
+              }`}
+            >
+              {toothNum}
+            </span>
+
+            {teethWithImages.has(toothNum) && (
+              <Camera
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-0.5 w-4 h-4 text-purple-400"
+                title="يوجد أشعة لهذا السن"
+              />
+            )}
+          </div>
         )}
 
         {/* كبّرنا الحاوية إلى 42px x 68px */}
@@ -417,15 +466,24 @@ export default function DentalChart({ patientId, showToast }) {
         </div>
 
         {!isUpper && (
-          <span
-            className={`text-[11px] font-mono font-bold mt-1 transition-colors ${
-              isSelected
-                ? "text-blue-400 font-extrabold"
-                : "text-slate-400 group-hover:text-slate-200"
-            }`}
-          >
-            {toothNum}
-          </span>
+          <div className="relative flex items-center gap-1 mt-1">
+            <span
+              className={`text-[11px] font-mono font-bold transition-colors ${
+                isSelected
+                  ? "text-blue-400 font-extrabold"
+                  : "text-slate-400 group-hover:text-slate-200"
+              }`}
+            >
+              {toothNum}
+            </span>
+
+            {teethWithImages.has(toothNum) && (
+              <Camera
+                className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 w-4 h-4 text-purple-400"
+                title="يوجد أشعة لهذا السن"
+              />
+            )}
+          </div>
         )}
       </div>
     );
@@ -578,24 +636,49 @@ export default function DentalChart({ patientId, showToast }) {
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
               <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
                 <span>السن:</span>
+
                 <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs">
                   #{selectedTooth}
                 </span>
+
                 <span className="text-[11px] text-slate-400 font-normal truncate">
                   {getToothArabicName(selectedTooth)}
                 </span>
               </h3>
-              <span
-                className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
-                  CONDITIONS[teethMap[selectedTooth]?.condition || "sound"]
-                    ?.badge
-                }`}
-              >
-                {
-                  CONDITIONS[teethMap[selectedTooth]?.condition || "sound"]
-                    ?.label
-                }
-              </span>
+
+              <div className="flex items-center gap-2">
+                {selectedToothImagesCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToImages?.(selectedTooth)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>أشعة السن ({selectedToothImagesCount})</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToImages?.(selectedTooth)}
+                    className="flex items-center gap-1 px-2 py-1 text-slate-500 hover:text-slate-300 text-[11px] transition-colors"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <span>+ إضافة أشعة</span>
+                  </button>
+                )}
+
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+                    CONDITIONS[teethMap[selectedTooth]?.condition || "sound"]
+                      ?.badge
+                  }`}
+                >
+                  {
+                    CONDITIONS[teethMap[selectedTooth]?.condition || "sound"]
+                      ?.label
+                  }
+                </span>
+              </div>
             </div>
 
             <form onSubmit={handleSubmitTooth} className="space-y-2.5">

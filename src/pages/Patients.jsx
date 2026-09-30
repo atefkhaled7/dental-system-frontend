@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
 import TreatmentPlans from "../components/TreatmentPlans";
+import MedicalImages from "../components/MedicalImages";
 import {
   Users,
   UserPlus,
@@ -178,6 +179,13 @@ export default function Patients() {
 
   // حالة التوست
   const [toast, setToast] = useState(null); // { message: '', type: 'success' | 'error' }
+
+  const [selectedToothForImages, setSelectedToothForImages] = useState(null);
+
+  const handleNavigateToImages = (toothNumber) => {
+    setSelectedToothForImages(toothNumber);
+    setActiveTab("medical_images");
+  };
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -636,6 +644,7 @@ export default function Patients() {
                 { id: "overview", label: "نظرة عامة" },
                 { id: "dental_chart", label: "مخطط الأسنان 🦷" },
                 { id: "treatment_plans", label: "خطط العلاج 📋" },
+                { id: "medical_images", label: "الصور والأشعة 📸" },
                 { id: "appointments", label: "المواعيد" },
                 { id: "invoices", label: "الفواتير" },
                 { id: "lab_orders", label: "طلبات المعمل" },
@@ -707,6 +716,7 @@ export default function Patients() {
                 <DentalChart
                   patientId={selectedPatient.id}
                   showToast={showToast}
+                  onNavigateToImages={handleNavigateToImages}
                 />
               )}
 
@@ -714,6 +724,17 @@ export default function Patients() {
                 <TreatmentPlans
                   patientId={selectedPatient.id}
                   showToast={showToast}
+                />
+              )}
+
+              {activeTab === "medical_images" && (
+                <MedicalImages
+                  key={`${selectedPatient.id}-${
+                    selectedToothForImages || "all"
+                  }`}
+                  patientId={selectedPatient.id}
+                  showToast={showToast}
+                  initialToothFilter={selectedToothForImages}
                 />
               )}
 
