@@ -19,6 +19,7 @@ import {
   Receipt,
   RefreshCw,
   Trash2,
+  MessageCircle,
 } from "lucide-react";
 
 const getCurrentDateTimeLocal = () => {
@@ -64,6 +65,10 @@ export default function Appointments() {
     gender: "Male",
   });
 
+  //اضافة فلتر حالة الحضور
+  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("");
+
   // 1. فلاتر التاريخ والطبيب
   const [filterDate, setFilterDate] = useState(""); // "" يعني الكل، أو تاريخ YYYY-MM-DD
   const [filterDoctor, setFilterDoctor] = useState(""); // "" يعني كل الأطباء
@@ -100,6 +105,44 @@ export default function Appointments() {
     patientName: "",
   });
 
+  // حالة التحكم في منيو الواتساب المفتوح
+  const [activeWhatsAppMenu, setActiveWhatsAppMenu] = useState(null);
+
+  // دالة جلب الرابط وفتح الواتساب بأمان ضد الـ Popup Blockers
+  const handleSendWhatsApp = async (appointmentId, type) => {
+    setActiveWhatsAppMenu(null);
+
+    const newTab = window.open("about:blank", "_blank");
+
+    if (!newTab) {
+      showToast(
+        "يرجى السماح بالنوافذ المنبثقة لهذا الموقع ثم المحاولة مرة أخرى.",
+        "error"
+      );
+      return;
+    }
+
+    try {
+      const res = await api.get(
+        `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`
+      );
+
+      if (res.data?.url) {
+        newTab.location.href = res.data.url;
+        showToast("تم فتح واتساب برسالة المريض.✅", "success");
+      } else {
+        newTab.close();
+        showToast("لم يتم العثور على رابط واتساب صالح.", "error");
+      }
+    } catch (err) {
+      newTab.close();
+      showToast(
+        err.response?.data?.error || "فشل إنشاء رابط الواتساب.",
+        "error"
+      );
+    }
+  };
+
   // جلب المواعيد مع دعم الفلاتر والـ Retry
   const {
     data: appointments = [],
@@ -118,6 +161,10 @@ export default function Appointments() {
       return res.data.appointments || [];
     },
   });
+
+  const filteredAppointments = filterStatus
+    ? appointments.filter((apt) => apt.status === filterStatus)
+    : appointments;
 
   // 2. جلب المرضى
   const { data: patients = [] } = useQuery({
@@ -358,69 +405,89 @@ export default function Appointments() {
         </button>
       </div>
 
-      {/* شريط الفلاتر الذكي (اليوم / غداً / تاريخ مخصص / الطبيب) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/60 p-4 border border-slate-800 rounded-2xl">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-slate-400 flex items-center gap-1.5 ml-2">
-            <Filter className="w-3.5 h-3.5 text-blue-400" />
+      {/* شريط الفلاتر */}
+      <div className="flex flex-wrap items-center gap-3 bg-slate-900/60 p-4 border border-slate-800 rounded-2xl">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-blue-400" />
+          <span className="text-xs font-medium text-slate-400">
             فلترة المواعيد:
           </span>
-
-          {/* أزرار سريعة للتاريخ */}
-          <button
-            onClick={() => setFilterDate("")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
-              filterDate === ""
-                ? "bg-blue-600 border-blue-500 text-white"
-                : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-            }`}
-          >
-            الكل
-          </button>
-          <button
-            onClick={() => setFilterDate(getTodayString())}
-            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
-              filterDate === getTodayString()
-                ? "bg-blue-600 border-blue-500 text-white"
-                : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-            }`}
-          >
-            مواعيد اليوم
-          </button>
-          <button
-            onClick={() => setFilterDate(getTomorrowString())}
-            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
-              filterDate === getTomorrowString()
-                ? "bg-blue-600 border-blue-500 text-white"
-                : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-            }`}
-          >
-            مواعيد الغد
-          </button>
-
-          {/* اختيار تاريخ مخصص */}
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
-          />
         </div>
 
-        {/* اختيار الطبيب المعالج */}
-        <div className="flex items-center gap-2 min-w-[200px]">
-          <select
-            value={filterDoctor}
-            onChange={(e) => setFilterDoctor(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-          >
-            <option value="">جميع الأطباء</option>
-            {doctors.map((d) => (
-              <option key={d.id} value={d.id}>
-                د. {d.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* فلترة التاريخ */}
+          <div className="relative">
+            <select
+              value={dateFilterMode}
+              onChange={(e) => {
+                const value = e.target.value;
+                setDateFilterMode(value);
+
+                if (value === "all") {
+                  setFilterDate("");
+                } else if (value === "today") {
+                  setFilterDate(getTodayString());
+                } else if (value === "tomorrow") {
+                  setFilterDate(getTomorrowString());
+                } else if (value === "custom") {
+                  setFilterDate("");
+                }
+              }}
+              className="appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer min-w-[145px]"
+            >
+              <option value="all">📅 كل التواريخ</option>
+              <option value="today">📅 مواعيد اليوم</option>
+              <option value="tomorrow">📅 مواعيد الغد</option>
+              <option value="custom">📅 تاريخ محدد</option>
+            </select>
+
+            <CalendarIcon className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+          </div>
+
+          {/* التاريخ المحدد */}
+          {dateFilterMode === "custom" && (
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+            />
+          )}
+
+          {/* فلترة الحالة */}
+          <div className="relative">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer min-w-[145px]"
+            >
+              <option value="">📌 كل الحالات</option>
+              <option value="scheduled">مجدول</option>
+              <option value="completed">مكتمل</option>
+              <option value="no_show">لم يحضر</option>
+              <option value="cancelled">ملغي</option>
+            </select>
+
+            <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+          </div>
+
+          {/* فلترة الطبيب */}
+          <div className="relative min-w-[170px]">
+            <select
+              value={filterDoctor}
+              onChange={(e) => setFilterDoctor(e.target.value)}
+              className="w-full appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="">كل الأطباء</option>
+              {doctors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  د. {d.name}
+                </option>
+              ))}
+            </select>
+
+            <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+          </div>
         </div>
       </div>
 
@@ -454,7 +521,7 @@ export default function Appointments() {
         ) : appointments.length === 0 ? (
           /* 3. حالات الـ Empty State */
           <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
-            {filterDate || filterDoctor ? (
+            {filterDate || filterDoctor || filterStatus ? (
               <>
                 <Filter className="w-8 h-8 text-slate-600 mb-1" />
                 <p className="text-white font-medium">
@@ -468,6 +535,8 @@ export default function Appointments() {
                   onClick={() => {
                     setFilterDate("");
                     setFilterDoctor("");
+                    setFilterStatus("");
+                    setDateFilterMode("all");
                   }}
                   className="text-xs text-blue-400 hover:underline"
                 >
@@ -511,7 +580,7 @@ export default function Appointments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {appointments.map((apt) => (
+                {filteredAppointments.map((apt) => (
                   <tr
                     key={apt.appointment_id}
                     className="hover:bg-slate-800/40 transition-colors"
@@ -611,7 +680,79 @@ export default function Appointments() {
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
+                        {/* 📲 زرار وقائمة الواتساب الذكية */}
+                        <div className="relative">
+                          <button
+                            title="مراسلة المريض عبر واتساب"
+                            onClick={() =>
+                              setActiveWhatsAppMenu(
+                                activeWhatsAppMenu === apt.appointment_id
+                                  ? null
+                                  : apt.appointment_id
+                              )
+                            }
+                            className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors flex items-center justify-center"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </button>
 
+                          {/* القائمة المنسدلة للرسائل */}
+                          {activeWhatsAppMenu === apt.appointment_id && (
+                            <>
+                              {/* خلفية شفافة لقفل المنيو عند الضغط في أي مكان برة */}
+                              <div
+                                className="fixed inset-0 z-10"
+                                onClick={() => setActiveWhatsAppMenu(null)}
+                              />
+
+                              <div className="absolute left-0 mt-1 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1 z-20 space-y-1 text-right">
+                                {/* خيار تأكيد الحجز */}
+                                <button
+                                  onClick={() =>
+                                    handleSendWhatsApp(
+                                      apt.appointment_id,
+                                      "confirmation"
+                                    )
+                                  }
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-emerald-400 rounded-lg transition-colors"
+                                >
+                                  <span>🦷</span>
+                                  <span>تأكيد الحجز</span>
+                                </button>
+
+                                {/* خيار تذكير بالموعد */}
+                                <button
+                                  onClick={() =>
+                                    handleSendWhatsApp(
+                                      apt.appointment_id,
+                                      "reminder"
+                                    )
+                                  }
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-blue-400 rounded-lg transition-colors"
+                                >
+                                  <span>🔔</span>
+                                  <span>تذكير بالموعد</span>
+                                </button>
+
+                                {/* خيار عدم الحضور (لو الموعد no_show أو معتذر) */}
+                                {apt.status === "no_show" && (
+                                  <button
+                                    onClick={() =>
+                                      handleSendWhatsApp(
+                                        apt.appointment_id,
+                                        "no_show"
+                                      )
+                                    }
+                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-400 rounded-lg transition-colors border-t border-slate-800/80 mt-1 pt-1"
+                                  >
+                                    <span>🌸</span>
+                                    <span>متابعة عدم الحضور</span>
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
                         {/* 🌟 الزر المباشر لتحويل الموعد إلى فاتورة */}
                         <button
                           title="تحويل الموعد إلى فاتورة فورية"
