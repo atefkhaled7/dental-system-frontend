@@ -1,27 +1,172 @@
 @import "tailwindcss";
 
-/* 1. إخفاء أسهم الأرقام (طالع ونازل) في الموقع كله */
+/* ==========================================================================
+   1. Design Tokens (Dark Theme - Default)
+   Deep Navy + Muted Teal | Enterprise Medical B2B
+   ========================================================================== */
+:root {
+  /* Backgrounds (Depth & Structure) */
+  --bg-app: #080d18; /* الأرضية العميقة للتطبيق */
+  --bg-surface: #111827; /* الكروت، الجداول، السايدبار */
+  --bg-elevated: #172033; /* المودالز، القوائم المنسدلة، الـ Popups */
+
+  /* Borders (Separators) */
+  --border-default: #243047; /* الفواصل وخلايا الجداول وحدود الكروت */
+  --border-focus: #0d9488; /* الحقول النشطة والفوكس */
+
+  /* Primary Actions (Muted Teal - Medical Precision) */
+  --primary-base: #0d9488; /* الأزرار الأساسية والأيقونات النشطة */
+  --primary-hover: #0f766e; /* حالة الـ Hover */
+  --primary-muted: #042f2e; /* خلفية العنصر المختار في السايدبار أو الجدول */
+
+  /* Typography Colors */
+  --text-main: #f8fafc; /* العناوين والأرقام الهامة والأسعار */
+  --text-secondary: #94a3b8; /* نصوص الجداول والمحتوى العادي */
+  --text-table-headers: #cbd5e1; /* رؤوس أعمدة الجداول */
+  --text-muted: #64748b; /* التواريخ، الـ Placeholders، الملاحظات الفرعية */
+
+  /* Semantic Colors (Badges & Alerts - Always 10% Opacity BG) */
+  --success-text: #34d399;
+  --success-bg: rgba(16, 185, 129, 0.1);
+
+  --warning-text: #fbbf24;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+
+  --danger-text: #f87171;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+
+  /* Shape & Radius Strategy */
+  --radius-btn: 6px;
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* Effects & Shadows */
+  --shadow-elevation: 0 20px 50px rgba(0, 0, 0, 0.7);
+
+  /* Scrollbar Tokens */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #243047;
+  --scrollbar-thumb-hover: #334155;
+
+  /* Dental Chart  */
+  --bg-chart: #0d1527;
+  --bg-chart-input: #060a13;
+  --bg-chart-legend: #090d18;
+}
+
+/* ==========================================================================
+   2. Light Theme (Future Ready - جاهز للتشغيل عند تفعيل data-theme="light")
+   ========================================================================== */
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f1f5f9;
+
+  /* Borders */
+  --border-default: #e2e8f0;
+  --border-focus: #0d9488;
+
+  /* Primary Actions */
+  --primary-base: #0d9488;
+  --primary-hover: #0f766e;
+  --primary-muted: #ccfbf1;
+
+  /* Typography */
+  --text-main: #0f172a;
+  --text-secondary: #475569;
+  --text-table-headers: #334155;
+  --text-muted: #94a3b8;
+
+  /* Semantic Colors */
+  --success-text: #059669;
+  --success-bg: rgba(16, 185, 129, 0.12);
+
+  --warning-text: #d97706;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+
+  --danger-text: #dc2626;
+  --danger-bg: rgba(239, 68, 68, 0.12);
+
+  /* Effects & Shadows */
+  --shadow-elevation: 0 20px 50px rgba(15, 23, 42, 0.15);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+
+  /*Dental Chart */
+  --bg-chart: #f8fafc;
+  --bg-chart-input: #ffffff;
+  --bg-chart-legend: #f1f5f9;
+}
+
+/* ==========================================================================
+   3. Global Element Resets
+   ========================================================================== */
+html {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: inherit;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   4. Utility Class for Modal Shadow
+   ========================================================================== */
+.shadow-elevation {
+  box-shadow: var(--shadow-elevation);
+}
+
+/* ==========================================================================
+   5. Inputs Reset (إخفاء أسهم حقول الأرقام)
+   ========================================================================== */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
 input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* 2. تلوين وتنعيم الـ Scrollbar عشان يبقى دارك شيك وميظهرش الأبيض ده أبداً */
+/* ==========================================================================
+   6. Custom Scrollbar (مربوط بالـ Tokens)
+   ========================================================================== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track);
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #334155; /* لون رمادي غامق أنيق متناسق مع الدارك مود */
-  border-radius: 9999px;
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-pill);
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--scrollbar-thumb-hover);
 }

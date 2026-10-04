@@ -10,30 +10,33 @@ import {
   Trash2,
   Eye,
   AlertTriangle,
-  
 } from "lucide-react";
 
-// تصنيفات الصور الطبية
+// تصنيفات الصور الطبية متوافقة مع الـ Tokens وبادجات الـ Pill بشفافية 10%
 const CATEGORIES = {
   xray_periapical: {
     label: "أشعة سن (موضعية)",
-    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    badge:
+      "bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20",
   },
   xray_panoramic: {
     label: "أشعة بانوراما",
-    badge: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    badge: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
   },
   photo_before: {
     label: "صورة قبل العلاج",
-    badge: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    badge:
+      "bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20",
   },
   photo_after: {
     label: "صورة بعد العلاج",
-    badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    badge:
+      "bg-[var(--success-bg)] text-[var(--success-text)] border border-[var(--success-text)]/20",
   },
   other: {
     label: "مستند طبي / أخرى",
-    badge: "bg-slate-800 text-slate-300 border-slate-700",
+    badge:
+      "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-default)]",
   },
 };
 
@@ -42,7 +45,7 @@ const FDI_TEETH = [
   45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
 ];
 
-// 🔒 مكوّن عرض الصورة مع تنظيف الـ Memory Leak فورياً
+// 🔒 مكوّن عرض الصورة الآمن
 function AuthenticatedImage({ imageId, alt, className }) {
   const [blobUrl, setBlobUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,7 @@ function AuthenticatedImage({ imageId, alt, className }) {
       .then((res) => {
         if (isMounted) {
           const url = URL.createObjectURL(res.data);
-          currentBlobUrl = url; // 👈 حفظ الرابط في الـ Effect Scope
+          currentBlobUrl = url;
           setBlobUrl(url);
           setLoading(false);
         }
@@ -68,7 +71,6 @@ function AuthenticatedImage({ imageId, alt, className }) {
 
     return () => {
       isMounted = false;
-      // تنظيف الـ Blob URL فورياً عند إزالة المكوّن أو تغيير الصورة
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
       }
@@ -78,9 +80,9 @@ function AuthenticatedImage({ imageId, alt, className }) {
   if (loading) {
     return (
       <div
-        className={`flex items-center justify-center bg-slate-950 text-slate-600 ${className}`}
+        className={`flex items-center justify-center bg-[var(--bg-app)] text-[var(--text-muted)] ${className}`}
       >
-        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--primary-base)]" />
       </div>
     );
   }
@@ -88,7 +90,7 @@ function AuthenticatedImage({ imageId, alt, className }) {
   if (!blobUrl) {
     return (
       <div
-        className={`flex items-center justify-center bg-slate-950 text-slate-600 text-xs ${className}`}
+        className={`flex items-center justify-center bg-[var(--bg-app)] text-[var(--text-muted)] text-xs ${className}`}
       >
         فشل تحميل الصورة
       </div>
@@ -116,7 +118,7 @@ export default function MedicalImages({
   const [lightboxImage, setLightboxImage] = useState(null);
   const [archiveConfirmImage, setArchiveConfirmImage] = useState(null);
 
-  // حالة فورم الرفع
+  // فورم الرفع
   const [uploadData, setUploadData] = useState({
     file: null,
     previewUrl: null,
@@ -124,8 +126,6 @@ export default function MedicalImages({
     category: "xray_periapical",
     description: "",
   });
-
-
 
   // 1. جلب صور المريض
   const { data: images = [], isLoading } = useQuery({
@@ -166,13 +166,6 @@ export default function MedicalImages({
         queryKey: ["patient-images", patientId],
       });
       handleCloseUploadModal();
-      setUploadData({
-        file: null,
-        previewUrl: null,
-        tooth_number: "",
-        category: "xray_periapical",
-        description: "",
-      });
       if (showToast) showToast("تم رفع وتوثيق الصورة الطبية بنجاح", "success");
     },
     onError: (err) => {
@@ -205,7 +198,6 @@ export default function MedicalImages({
   });
 
   const handleCloseUploadModal = () => {
-    // تنظيف رابط المعاينة فورياً لتفريغ الذاكرة
     if (uploadData.previewUrl) {
       URL.revokeObjectURL(uploadData.previewUrl);
     }
@@ -227,12 +219,9 @@ export default function MedicalImages({
           showToast("حجم الصورة يتجاوز الحد المسموح (10 ميجابايت)", "error");
         return;
       }
-
-      // تنظيف المعاينة القديمة لو المستخدم اختار صورة تانية
       if (uploadData.previewUrl) {
         URL.revokeObjectURL(uploadData.previewUrl);
       }
-
       setUploadData((prev) => ({
         ...prev,
         file,
@@ -247,7 +236,6 @@ export default function MedicalImages({
       if (showToast) showToast("يرجى اختيار ملف الصورة أولاً", "error");
       return;
     }
-
     const formData = new FormData();
     formData.append("image", uploadData.file);
     formData.append("category", uploadData.category);
@@ -255,20 +243,19 @@ export default function MedicalImages({
       formData.append("tooth_number", uploadData.tooth_number);
     if (uploadData.description)
       formData.append("description", uploadData.description);
-
     uploadImageMutation.mutate(formData);
   };
 
   return (
     <div className="space-y-4">
       {/* 🌟 1. شريط التحكم والأزرار العلوية */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/70 p-3 sm:p-4 rounded-2xl border border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-surface)] p-3 sm:p-4 rounded-[var(--radius-card)] border border-[var(--border-default)]">
         <div>
-          <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-            <ImageIcon className="w-5 h-5 text-blue-400" />
+          <h3 className="text-sm sm:text-base font-semibold text-[var(--text-main)] flex items-center gap-2">
+            <ImageIcon className="w-5 h-5 text-[var(--primary-base)]" />
             الأشعة والملفات الطبية
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
             أشعة الأسنان البانورامية والموضعية والصور السريرية قبل وبعد العلاج
           </p>
         </div>
@@ -278,10 +265,10 @@ export default function MedicalImages({
           <button
             type="button"
             onClick={() => setShowArchived(!showArchived)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            className={`px-3 py-1.5 rounded-[var(--radius-btn)] text-xs font-medium border transition-colors ${
               showArchived
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                ? "bg-[var(--warning-bg)] border-[var(--warning-text)]/30 text-[var(--warning-text)] hover:bg-[var(--warning-bg)]/80"
+                : "bg-[var(--bg-elevated)] border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] hover:bg-[var(--border-default)]"
             }`}
           >
             {showArchived ? "الصور النشطة" : "الأرشيف"}
@@ -292,7 +279,7 @@ export default function MedicalImages({
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-md shadow-blue-600/20 transition-all"
+              className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-3.5 py-1.5 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
             >
               <Upload className="w-4 h-4" />
               <span>رفع أشعة / صورة</span>
@@ -301,16 +288,16 @@ export default function MedicalImages({
         </div>
       </div>
 
-      {/* 🌟 2. شريط الفلاتر (التصنيفات والأسنان) */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/80 text-xs">
-        {/* أزرار سريعة للتصنيفات */}
+      {/* 🌟 2. شريط الفلاتر */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-[var(--bg-surface)] p-2.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] text-xs">
+        {/* أزرار التصنيفات */}
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setCategoryFilter("")}
-            className={`px-2.5 py-1 rounded-lg transition-colors border ${
+            className={`px-2.5 py-1 rounded-[var(--radius-btn)] transition-colors border ${
               categoryFilter === ""
-                ? "bg-blue-600 text-white border-blue-500"
-                : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+                ? "bg-[var(--primary-muted)] text-[var(--primary-base)] border-[var(--primary-base)]/40 font-semibold"
+                : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border-[var(--border-default)] hover:text-[var(--text-main)] hover:bg-[var(--border-default)]"
             }`}
           >
             كل الصور ({images.length})
@@ -319,10 +306,10 @@ export default function MedicalImages({
             <button
               key={key}
               onClick={() => setCategoryFilter(key)}
-              className={`px-2.5 py-1 rounded-lg transition-colors border ${
+              className={`px-2.5 py-1 rounded-[var(--radius-btn)] transition-colors border ${
                 categoryFilter === key
-                  ? "bg-blue-600 text-white border-blue-500"
-                  : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+                  ? "bg-[var(--primary-muted)] text-[var(--primary-base)] border-[var(--primary-base)]/40 font-semibold"
+                  : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border-[var(--border-default)] hover:text-[var(--text-main)] hover:bg-[var(--border-default)]"
               }`}
             >
               {cfg.label}
@@ -335,7 +322,7 @@ export default function MedicalImages({
           <select
             value={toothFilter}
             onChange={(e) => setToothFilter(e.target.value)}
-            className="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-blue-500 font-mono"
+            className="bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-secondary)] focus:text-[var(--text-main)] rounded-[var(--radius-btn)] px-2.5 py-1 text-xs focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors cursor-pointer"
           >
             <option value="">كل الأسنان</option>
             {FDI_TEETH.map((num) => (
@@ -349,16 +336,16 @@ export default function MedicalImages({
 
       {/* 🌟 3. معرض الصور (Gallery Grid) */}
       {isLoading ? (
-        <div className="py-16 flex justify-center text-slate-400">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+        <div className="py-16 flex justify-center text-[var(--text-secondary)]">
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
         </div>
       ) : images.length === 0 ? (
-        <div className="py-14 text-center text-slate-500 text-xs bg-slate-950/40 rounded-2xl border border-slate-800 p-6 space-y-2">
-          <ImageIcon className="w-9 h-9 text-slate-600 mx-auto mb-1" />
-          <p className="text-slate-300 font-medium">
+        <div className="py-14 text-center text-xs bg-[var(--bg-surface)] rounded-[var(--radius-card)] border border-[var(--border-default)] p-6 space-y-2">
+          <ImageIcon className="w-9 h-9 text-[var(--text-muted)] mx-auto mb-1" />
+          <p className="text-[var(--text-main)] font-semibold">
             لا توجد صور طبية مسجلة مطابقة للفلاتر.
           </p>
-          <p className="text-slate-500">
+          <p className="text-[var(--text-muted)]">
             اضغط على "رفع أشعة / صورة" لإضافة أول صورة طبية للمريض.
           </p>
         </div>
@@ -366,16 +353,15 @@ export default function MedicalImages({
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 sm:gap-4">
           {images.map((img) => {
             const catCfg = CATEGORIES[img.category] || CATEGORIES.other;
-
             return (
               <div
                 key={img.id}
-                className="group bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-lg flex flex-col hover:border-slate-700 transition-all"
+                className="group bg-[var(--bg-surface)] rounded-[var(--radius-card)] border border-[var(--border-default)] overflow-hidden flex flex-col hover:border-[var(--border-focus)]/50 transition-colors"
               >
-                {/* الحاوية المعاينة للصورة مع زرار التكبير */}
+                {/* الحاوية المعاينة للصورة */}
                 <div
                   onClick={() => setLightboxImage(img)}
-                  className="relative aspect-video w-full bg-slate-900 cursor-pointer overflow-hidden flex items-center justify-center"
+                  className="relative aspect-video w-full bg-[var(--bg-app)] cursor-pointer overflow-hidden flex items-center justify-center"
                 >
                   <AuthenticatedImage
                     imageId={img.id}
@@ -383,16 +369,16 @@ export default function MedicalImages({
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
 
-                  {/* طبقة التكبير عند التحويم */}
+                  {/* زر المعاينة عند التحويم */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <span className="p-2 bg-slate-900/80 rounded-xl text-white backdrop-blur-sm">
+                    <span className="p-2 bg-[var(--bg-elevated)]/90 rounded-[var(--radius-btn)] text-[var(--text-main)] border border-[var(--border-default)] backdrop-blur-sm">
                       <Eye className="w-4 h-4" />
                     </span>
                   </div>
 
-                  {/* شارة رقم السن لو مرتبطة بسن معين */}
+                  {/* شارة رقم السن */}
                   {img.tooth_number && (
-                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-blue-600/90 text-white font-mono text-[11px] font-bold shadow-md">
+                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-[var(--radius-btn)] bg-[var(--primary-muted)]/90 text-[var(--primary-base)] border border-[var(--primary-base)]/30 font-mono text-[11px] font-semibold backdrop-blur-sm">
                       #{img.tooth_number}
                     </span>
                   )}
@@ -403,12 +389,12 @@ export default function MedicalImages({
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <span
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium border ${catCfg.badge}`}
+                        className={`px-2 py-0.5 rounded-[var(--radius-pill)] text-[10px] font-medium border ${catCfg.badge}`}
                       >
                         {catCfg.label}
                       </span>
                       <span
-                        className="text-[10px] text-slate-500 font-mono"
+                        className="text-[10px] text-[var(--text-muted)] font-mono"
                         dir="ltr"
                       >
                         {new Date(img.created_at).toLocaleDateString("en-GB")}
@@ -416,23 +402,21 @@ export default function MedicalImages({
                     </div>
 
                     {img.description ? (
-                      <p className="text-white font-medium text-xs line-clamp-2">
+                      <p className="text-[var(--text-main)] font-medium text-xs line-clamp-2">
                         {img.description}
                       </p>
                     ) : (
-                      <p className="text-slate-400 text-xs truncate">
+                      <p className="text-[var(--text-secondary)] text-xs truncate">
                         {img.file_name}
                       </p>
                     )}
                   </div>
 
                   {/* الفوتر: اسم الدكتور وزر الأرشفة */}
-                  <div className="pt-2 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="pt-2 border-t border-[var(--border-default)] flex items-center justify-between text-[11px] text-[var(--text-muted)]">
                     <span className="truncate">
                       د. {img.doctor_name || "العيادة"}
                     </span>
-
-                    {/* زر الأرشفة (للأطباء ومديري العيادة فقط وللصور غير المؤرشفة) */}
                     {!showArchived &&
                       ["ClinicAdmin", "Doctor"].includes(user?.role) && (
                         <button
@@ -441,7 +425,7 @@ export default function MedicalImages({
                             e.stopPropagation();
                             setArchiveConfirmImage(img);
                           }}
-                          className="text-red-400/80 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition-colors"
+                          className="text-[var(--danger-text)]/80 hover:text-[var(--danger-text)] p-1 rounded-[var(--radius-btn)] hover:bg-[var(--danger-bg)] transition-colors"
                           title="أرشفة السجل الطبي"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -457,60 +441,54 @@ export default function MedicalImages({
 
       {/* 🌟 4. مستعرض الصور المكبر (Lightbox Modal) */}
       {lightboxImage && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 z-[80]">
-          <div className="max-w-4xl w-full bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh]">
-            {/* هيدر المستعرض */}
-            <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 z-[80]">
+          <div className="max-w-4xl w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden shadow-elevation flex flex-col max-h-[95vh]">
+            <div className="p-3.5 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">
+                <span className="text-sm font-semibold text-[var(--text-main)]">
                   {lightboxImage.description || lightboxImage.file_name}
                 </span>
                 {lightboxImage.tooth_number && (
-                  <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs">
+                  <span className="px-2 py-0.5 rounded-[var(--radius-btn)] bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20 font-mono text-xs font-semibold">
                     سن #{lightboxImage.tooth_number}
                   </span>
                 )}
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setLightboxImage(null)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <button
+                onClick={() => setLightboxImage(null)}
+                className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] hover:bg-[var(--bg-surface)] transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* الصورة المكبرة */}
-            <div className="flex-1 bg-black/60 p-2 sm:p-4 flex items-center justify-center overflow-auto">
+            <div className="flex-1 bg-[var(--bg-app)] p-2 sm:p-4 flex items-center justify-center overflow-auto">
               <AuthenticatedImage
                 imageId={lightboxImage.id}
                 alt={lightboxImage.file_name}
-                className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg shadow-2xl"
+                className="max-h-[70vh] w-auto max-w-full object-contain rounded-[var(--radius-btn)]"
               />
             </div>
 
-            {/* فوتر المستعرض مع البيانات الكاملة */}
-            <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+            <div className="p-3 bg-[var(--bg-elevated)] border-t border-[var(--border-default)] flex flex-wrap items-center justify-between text-xs text-[var(--text-muted)] gap-2">
               <div className="flex items-center gap-3">
                 <span>
                   النوع:{" "}
-                  <strong className="text-white">
+                  <strong className="text-[var(--text-main)]">
                     {CATEGORIES[lightboxImage.category]?.label}
                   </strong>
                 </span>
                 <span>•</span>
                 <span>
                   الحجم:{" "}
-                  <strong className="text-white font-mono">
+                  <strong className="text-[var(--text-main)] font-mono">
                     {(lightboxImage.file_size / 1024).toFixed(1)} KB
                   </strong>
                 </span>
                 <span>•</span>
                 <span>
                   التاريخ:{" "}
-                  <strong className="text-white font-mono">
+                  <strong className="text-[var(--text-main)] font-mono">
                     {new Date(lightboxImage.created_at).toLocaleString("ar-EG")}
                   </strong>
                 </span>
@@ -522,25 +500,24 @@ export default function MedicalImages({
 
       {/* 🌟 5. نافذة رفع صورة طبية جديدة (Upload Modal) */}
       {isUploadModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[75]">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-5 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Upload className="w-4 h-4 text-blue-400" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[75]">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 shadow-elevation space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-3">
+              <h4 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <Upload className="w-4 h-4 text-[var(--primary-base)]" />
                 رفع صورة أو أشعة جديدة
               </h4>
               <button
                 onClick={handleCloseUploadModal}
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] p-1 rounded-[var(--radius-btn)] hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleUploadSubmit} className="space-y-3">
-              {/* منطقة اختيار ومعاينة الملف */}
+            <form onSubmit={handleUploadSubmit} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                   ملف الصورة / الأشعة * (JPG, PNG, WEBP - بحد أقصى 10MB)
                 </label>
                 <input
@@ -548,12 +525,11 @@ export default function MedicalImages({
                   accept="image/jpeg,image/png,image/webp"
                   required
                   onChange={handleFileChange}
-                  className="w-full text-xs text-slate-400 file:mr-0 file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer bg-slate-950 p-2 rounded-xl border border-slate-800"
+                  className="w-full text-xs text-[var(--text-secondary)] file:mr-0 file:ml-3 file:py-1.5 file:px-3 file:rounded-[var(--radius-btn)] file:border-0 file:text-xs file:font-medium file:bg-[var(--primary-base)] file:text-white hover:file:bg-[var(--primary-hover)] cursor-pointer bg-[var(--bg-app)] p-2 rounded-[var(--radius-btn)] border border-[var(--border-default)]"
                 />
 
-                {/* معاينة الصورة المرفوعة */}
                 {uploadData.previewUrl && (
-                  <div className="mt-2 relative aspect-video w-full rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+                  <div className="mt-2.5 relative aspect-video w-full rounded-[var(--radius-btn)] overflow-hidden border border-[var(--border-default)] bg-[var(--bg-app)]">
                     <img
                       src={uploadData.previewUrl}
                       alt="معاينة"
@@ -564,9 +540,8 @@ export default function MedicalImages({
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {/* التصنيف */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     تصنيف الصورة *
                   </label>
                   <select
@@ -574,7 +549,7 @@ export default function MedicalImages({
                     onChange={(e) =>
                       setUploadData({ ...uploadData, category: e.target.value })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                   >
                     {Object.entries(CATEGORIES).map(([key, cfg]) => (
                       <option key={key} value={key}>
@@ -584,9 +559,8 @@ export default function MedicalImages({
                   </select>
                 </div>
 
-                {/* ربط بسن معين (اختياري) */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     السن المرتبط (اختياري)
                   </label>
                   <select
@@ -597,7 +571,7 @@ export default function MedicalImages({
                         tooth_number: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                   >
                     <option value="">-- بدون سن (أشعة عامة) --</option>
                     {FDI_TEETH.map((num) => (
@@ -609,9 +583,8 @@ export default function MedicalImages({
                 </div>
               </div>
 
-              {/* الوصف */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   وصف الصورة أو ملاحظات الطبيب
                 </label>
                 <textarea
@@ -624,22 +597,22 @@ export default function MedicalImages({
                       description: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={handleCloseUploadModal}
-                  className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={uploadImageMutation.isPending}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                  className="flex-1 py-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {uploadImageMutation.isPending
                     ? "جاري الرفع..."
@@ -653,25 +626,25 @@ export default function MedicalImages({
 
       {/* 🌟 6. نافذة تأكيد أرشفة السجل الطبي */}
       {archiveConfirmImage && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[85]">
-          <div className="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-2xl p-5 shadow-2xl space-y-3">
-            <div className="flex items-center gap-2 text-red-400">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <h4 className="text-sm font-bold text-white">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[85]">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-sm w-full rounded-[var(--radius-card)] p-5 shadow-elevation space-y-3">
+            <div className="flex items-center gap-2 text-[var(--danger-text)]">
+              <div className="p-2 bg-[var(--danger-bg)] rounded-[var(--radius-btn)] border border-[var(--danger-text)]/20">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <h4 className="text-sm font-semibold text-[var(--text-main)]">
                 تأكيد أرشفة الصورة الطبية
               </h4>
             </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               هل أنت متأكد من أرشفة هذا السجل الطبي؟ سيتم إخفاء الصورة من العرض
               الطبي مع الحفاظ على السجل القانوني في الخادم.
             </p>
-
-            <div className="flex gap-2 pt-2 border-t border-slate-800">
+            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
                 onClick={() => setArchiveConfirmImage(null)}
-                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
               >
                 إلغاء
               </button>
@@ -681,7 +654,7 @@ export default function MedicalImages({
                 onClick={() =>
                   archiveImageMutation.mutate(archiveConfirmImage.id)
                 }
-                className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                className="flex-1 py-2 bg-[var(--danger-text)] hover:opacity-90 text-white rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {archiveImageMutation.isPending
                   ? "جاري الأرشفة..."

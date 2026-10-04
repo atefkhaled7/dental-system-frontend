@@ -20,28 +20,35 @@ const FDI_TEETH = [
   45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
 ];
 
+// حالات البنود بنظام الشفافية 10% والـ Tokens
 const ITEM_STATUS_CONFIG = {
   planned: {
     label: "مخطط له",
-    badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    badge:
+      "bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20",
   },
   in_progress: {
     label: "قيد التنفيذ",
-    badge: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    badge:
+      "bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20",
   },
   completed: {
     label: "مكتمل",
-    badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    badge:
+      "bg-[var(--success-bg)] text-[var(--success-text)] border border-[var(--success-text)]/20",
   },
 };
 
-export default function TreatmentPlans({ patientId, showToast }) {
+export default function TreatmentPlans({
+  patientId,
+  showToast,
+  isArchived = false,
+}) {
   const queryClient = useQueryClient();
 
   // مودالات الإضافة
   const [isNewPlanModalOpen, setIsNewPlanModalOpen] = useState(false);
   const [newPlanData, setNewPlanData] = useState({ title: "", notes: "" });
-
   const [activePlanForNewItem, setActivePlanForNewItem] = useState(null);
   const [newItemData, setNewItemData] = useState({
     tooth_number: "",
@@ -112,7 +119,7 @@ export default function TreatmentPlans({ patientId, showToast }) {
     },
   });
 
-  // 4. Mutation تحديث حالة البند (planned -> in_progress -> completed)
+  // 4. Mutation تحديث حالة البند
   const updateStatusMutation = useMutation({
     mutationFn: async ({ itemId, status }) => {
       const res = await api.patch(`/treatment-plans/items/${itemId}/status`, {
@@ -157,7 +164,6 @@ export default function TreatmentPlans({ patientId, showToast }) {
     },
   });
 
-  // تحديد / إلغاء تحديد بند للفوترة
   const toggleItemSelection = (id) => {
     setSelectedItemIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -166,8 +172,8 @@ export default function TreatmentPlans({ patientId, showToast }) {
 
   if (isLoading) {
     return (
-      <div className="py-16 flex justify-center text-slate-400">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="py-16 flex justify-center text-[var(--text-secondary)]">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
       </div>
     );
   }
@@ -175,35 +181,36 @@ export default function TreatmentPlans({ patientId, showToast }) {
   return (
     <div className="space-y-6">
       {/* 🌟 1. هيدر القسم وزرار إنشاء خطة جديدة */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-surface)] p-3 sm:p-4 rounded-[var(--radius-card)] border border-[var(--border-default)]">
         <div>
-          <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-            <ClipboardList className="w-5 h-5 text-blue-400" />
+          <h3 className="text-sm sm:text-base font-semibold text-[var(--text-main)] flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-[var(--primary-base)]" />
             خطط العلاج المعتمدة للمريض
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            ربط تشخيص الأسنان بالإجراءات الطبية وجدولة الفواتير
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            ربط تشخيص الأسنان بالإجراءات الطبية وجدولة الفواتير بدقة
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setIsNewPlanModalOpen(true)}
-          className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow-md shadow-blue-600/20 self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>خطة علاج جديدة</span>
-        </button>
+        {!isArchived && (
+          <button
+            type="button"
+            onClick={() => setIsNewPlanModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-3.5 py-1.5 rounded-[var(--radius-btn)] text-xs font-medium transition-colors self-start sm:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>خطة علاج جديدة</span>
+          </button>
+        )}
       </div>
 
       {/* 🌟 2. عرض خطط العلاج */}
       {plans.length === 0 ? (
-        <div className="py-12 text-center text-slate-500 text-xs bg-slate-950/40 rounded-2xl border border-slate-800 p-6 space-y-2">
-          <ClipboardList className="w-8 h-8 text-slate-600 mx-auto mb-1" />
-          <p className="text-slate-300 font-medium">
+        <div className="py-12 text-center text-xs bg-[var(--bg-surface)] rounded-[var(--radius-card)] border border-[var(--border-default)] p-6 space-y-2">
+          <ClipboardList className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-1" />
+          <p className="text-[var(--text-main)] font-semibold">
             لا توجد خطط علاج مسجلة لهذا المريض حتى الآن.
           </p>
-          <p className="text-slate-500">
+          <p className="text-[var(--text-muted)]">
             اضغط على "خطة علاج جديدة" للبدء في تنظيم الإجراءات والأسعار.
           </p>
         </div>
@@ -221,66 +228,74 @@ export default function TreatmentPlans({ patientId, showToast }) {
             return (
               <div
                 key={plan.id}
-                className="bg-slate-950/80 rounded-2xl border border-slate-800 overflow-hidden shadow-xl"
+                className="bg-[var(--bg-surface)] rounded-[var(--radius-card)] border border-[var(--border-default)] overflow-hidden"
               >
                 {/* هيدر الخطة */}
-                <div className="p-4 bg-slate-900/60 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="p-3.5 sm:p-4 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-white">
+                      <h4 className="text-sm font-semibold text-[var(--text-main)]">
                         {plan.title}
                       </h4>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+                      <span className="text-[10px] px-2 py-0.5 rounded-[var(--radius-pill)] bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20 font-medium">
                         {plan.status === "active" ? "نشطة" : plan.status}
                       </span>
                     </div>
                     {plan.notes && (
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                         {plan.notes}
                       </p>
                     )}
                   </div>
-
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono text-slate-300">
+                    <span className="text-xs font-mono text-[var(--text-secondary)]">
                       إجمالي الخطة:{" "}
-                      <strong className="text-emerald-400">
+                      <strong className="text-[var(--text-main)] font-bold">
                         {totalEstimated.toLocaleString("en-US")} ج.م
                       </strong>
                     </span>
-
-                    <button
-                      type="button"
-                      onClick={() => setActivePlanForNewItem(plan)}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium border border-slate-700 transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>إضافة إجراء</span>
-                    </button>
+                    {!isArchived && (
+                      <button
+                        type="button"
+                        onClick={() => setActivePlanForNewItem(plan)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--border-default)] text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium border border-[var(--border-default)] transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>إضافة إجراء</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 {/* جدول بنود الخطة */}
                 {plan.items.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-500">
+                  <div className="p-6 text-center text-xs text-[var(--text-muted)]">
                     لم تتم إضافة أي إجراءات طبية لهذه الخطة بعد. اضغط على "إضافة
                     إجراء".
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-right text-xs">
-                      <thead className="bg-slate-950 text-slate-400 border-b border-slate-800/80">
+                      <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
                         <tr>
                           <th className="py-2.5 px-3 w-8">#</th>
-                          <th className="py-2.5 px-3">السن</th>
-                          <th className="py-2.5 px-3">التشخيص الطبي</th>
-                          <th className="py-2.5 px-3">الإجراء المطلوب</th>
-                          <th className="py-2.5 px-3 font-mono">التكلفة</th>
-                          <th className="py-2.5 px-3">الحالة</th>
-                          <th className="py-2.5 px-3 text-center">الفوترة</th>
+                          <th className="py-2.5 px-3 font-medium">السن</th>
+                          <th className="py-2.5 px-3 font-medium">
+                            التشخيص الطبي
+                          </th>
+                          <th className="py-2.5 px-3 font-medium">
+                            الإجراء المطلوب
+                          </th>
+                          <th className="py-2.5 px-3 font-medium font-mono">
+                            التكلفة
+                          </th>
+                          <th className="py-2.5 px-3 font-medium">الحالة</th>
+                          <th className="py-2.5 px-3 font-medium text-center">
+                            الفوترة
+                          </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
                         {plan.items.map((item) => {
                           const statusCfg =
                             ITEM_STATUS_CONFIG[item.status] ||
@@ -292,9 +307,9 @@ export default function TreatmentPlans({ patientId, showToast }) {
                           return (
                             <tr
                               key={item.id}
-                              className="hover:bg-slate-900/40 transition-colors"
+                              className="hover:bg-[var(--bg-elevated)]/40 transition-colors"
                             >
-                              {/* Checkbox للفوترة المجمعة */}
+                              {/* Checkbox للفوترة */}
                               <td className="py-2.5 px-3">
                                 {isEligibleForInvoice ? (
                                   <input
@@ -303,38 +318,40 @@ export default function TreatmentPlans({ patientId, showToast }) {
                                     onChange={() =>
                                       toggleItemSelection(item.id)
                                     }
-                                    className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
+                                    className="w-3.5 h-3.5 rounded-[var(--radius-btn)] bg-[var(--bg-app)] border-[var(--border-default)] text-[var(--primary-base)] focus:ring-0 cursor-pointer accent-[var(--primary-base)]"
                                   />
                                 ) : (
-                                  <span className="text-slate-600">-</span>
+                                  <span className="text-[var(--text-muted)]">
+                                    -
+                                  </span>
                                 )}
                               </td>
 
                               {/* رقم السن */}
-                              <td className="py-2.5 px-3 font-mono font-bold text-white">
+                              <td className="py-2.5 px-3 font-mono font-medium">
                                 {item.tooth_number ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-blue-950/80 border border-blue-500/30 text-blue-400">
+                                  <span className="px-1.5 py-0.5 rounded-[var(--radius-btn)] bg-[var(--primary-muted)] border border-[var(--primary-base)]/20 text-[var(--primary-base)]">
                                     #{item.tooth_number}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-500 text-[11px]">
+                                  <span className="text-[var(--text-muted)] text-[11px]">
                                     عام
                                   </span>
                                 )}
                               </td>
 
                               {/* التشخيص */}
-                              <td className="py-2.5 px-3 text-slate-400">
+                              <td className="py-2.5 px-3 text-[var(--text-muted)]">
                                 {item.diagnosis || "-"}
                               </td>
 
                               {/* الإجراء الطبي */}
-                              <td className="py-2.5 px-3 font-semibold text-white">
+                              <td className="py-2.5 px-3 font-semibold text-[var(--text-main)]">
                                 {item.procedure_name}
                               </td>
 
                               {/* التكلفة */}
-                              <td className="py-2.5 px-3 font-mono text-emerald-400 font-medium">
+                              <td className="py-2.5 px-3 font-mono text-[var(--text-main)] font-medium">
                                 {parseFloat(item.estimated_cost).toLocaleString(
                                   "en-US"
                                 )}{" "}
@@ -344,8 +361,14 @@ export default function TreatmentPlans({ patientId, showToast }) {
                               {/* الحالة والتعديل السريع */}
                               <td className="py-2.5 px-3">
                                 {isInvoiced ? (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                  <span className="px-2 py-0.5 rounded-[var(--radius-pill)] text-[10px] font-medium bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]">
                                     مكتمل ومغلق
+                                  </span>
+                                ) : isArchived ? (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-[var(--radius-pill)] text-[10px] font-medium border ${statusCfg.badge}`}
+                                  >
+                                    {statusCfg.label}
                                   </span>
                                 ) : (
                                   <select
@@ -356,7 +379,7 @@ export default function TreatmentPlans({ patientId, showToast }) {
                                         status: e.target.value,
                                       })
                                     }
-                                    className={`px-2 py-0.5 rounded-lg text-[11px] font-medium border bg-slate-900 focus:outline-none cursor-pointer ${statusCfg.badge}`}
+                                    className={`px-2 py-0.5 rounded-[var(--radius-btn)] text-[11px] font-medium border bg-[var(--bg-app)] focus:outline-none cursor-pointer transition-colors ${statusCfg.badge}`}
                                   >
                                     <option value="planned">مخطط له</option>
                                     <option value="in_progress">
@@ -370,16 +393,16 @@ export default function TreatmentPlans({ patientId, showToast }) {
                               {/* حالة الفاتورة */}
                               <td className="py-2.5 px-3 text-center">
                                 {isInvoiced ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-medium">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-pill)] bg-[var(--success-bg)] text-[var(--success-text)] border border-[var(--success-text)]/20 text-[10px] font-medium">
                                     <Check className="w-3 h-3" />
                                     تمت الفوترة
                                   </span>
                                 ) : item.status === "completed" ? (
-                                  <span className="text-[10px] text-amber-400 font-medium">
+                                  <span className="text-[10px] text-[var(--warning-text)] font-medium">
                                     جاهز للفوترة
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-slate-500">
+                                  <span className="text-[10px] text-[var(--text-muted)]">
                                     لم يكتمل بعد
                                   </span>
                                 )}
@@ -392,17 +415,16 @@ export default function TreatmentPlans({ patientId, showToast }) {
                   </div>
                 )}
 
-                {/* فوتر الخطة وزرار إصدار الفاتورة بالبنود المحددة */}
-                {completedUnbilledItems.length > 0 && (
-                  <div className="p-3 bg-slate-900/40 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <span className="text-slate-400">
+                {/* فوتر الخطة وزرار إصدار الفاتورة */}
+                {!isArchived && completedUnbilledItems.length > 0 && (
+                  <div className="p-3 bg-[var(--bg-elevated)] border-t border-[var(--border-default)] flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <span className="text-[var(--text-secondary)]">
                       يوجد{" "}
-                      <strong className="text-white">
+                      <strong className="text-[var(--text-main)] font-semibold">
                         {completedUnbilledItems.length}
                       </strong>{" "}
                       إجراءات مكتملة لم تصدر لها فواتير بعد.
                     </span>
-
                     <button
                       type="button"
                       disabled={
@@ -410,7 +432,7 @@ export default function TreatmentPlans({ patientId, showToast }) {
                         invoiceMutation.isPending
                       }
                       onClick={() => invoiceMutation.mutate(selectedItemIds)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-40 shadow-md shadow-emerald-600/20"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-40"
                     >
                       <Receipt className="w-4 h-4" />
                       <span>
@@ -429,30 +451,29 @@ export default function TreatmentPlans({ patientId, showToast }) {
 
       {/* 🌟 3. مودال إنشاء خطة علاج جديدة */}
       {isNewPlanModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <ClipboardList className="w-4 h-4 text-blue-400" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 shadow-elevation space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-3">
+              <h4 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-[var(--primary-base)]" />
                 إنشاء خطة علاج جديدة
               </h4>
               <button
                 onClick={() => setIsNewPlanModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] p-1 rounded-[var(--radius-btn)] hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 createPlanMutation.mutate(newPlanData);
               }}
-              className="space-y-3"
+              className="space-y-3.5"
             >
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   عنوان خطة العلاج *
                 </label>
                 <input
@@ -463,12 +484,11 @@ export default function TreatmentPlans({ patientId, showToast }) {
                   onChange={(e) =>
                     setNewPlanData({ ...newPlanData, title: e.target.value })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
-
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   ملاحظات عامة
                 </label>
                 <textarea
@@ -478,22 +498,21 @@ export default function TreatmentPlans({ patientId, showToast }) {
                   onChange={(e) =>
                     setNewPlanData({ ...newPlanData, notes: e.target.value })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
-
-              <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <div className="flex gap-2.5 pt-2 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={() => setIsNewPlanModalOpen(false)}
-                  className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={createPlanMutation.isPending}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                  className="flex-1 py-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {createPlanMutation.isPending
                     ? "جاري الإنشاء..."
@@ -507,21 +526,20 @@ export default function TreatmentPlans({ patientId, showToast }) {
 
       {/* 🌟 4. مودال إضافة إجراء / بند في خطة علاج */}
       {activePlanForNewItem && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-blue-400" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 shadow-elevation space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-3">
+              <h4 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <Plus className="w-4 h-4 text-[var(--primary-base)]" />
                 إضافة إجراء طبي إلى: {activePlanForNewItem.title}
               </h4>
               <button
                 onClick={() => setActivePlanForNewItem(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] p-1 rounded-[var(--radius-btn)] hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -530,12 +548,12 @@ export default function TreatmentPlans({ patientId, showToast }) {
                   payload: newItemData,
                 });
               }}
-              className="space-y-3"
+              className="space-y-3.5"
             >
               <div className="grid grid-cols-2 gap-3">
                 {/* رقم السن */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     السن (FDI)
                   </label>
                   <select
@@ -546,7 +564,7 @@ export default function TreatmentPlans({ patientId, showToast }) {
                         tooth_number: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                   >
                     <option value="">-- إجراء عام (بدون سن) --</option>
                     {FDI_TEETH.map((num) => (
@@ -556,10 +574,9 @@ export default function TreatmentPlans({ patientId, showToast }) {
                     ))}
                   </select>
                 </div>
-
                 {/* التكلفة التقديرية */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     التكلفة التقديرية (ج.م) *
                   </label>
                   <input
@@ -575,14 +592,13 @@ export default function TreatmentPlans({ patientId, showToast }) {
                         estimated_cost: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                   />
                 </div>
               </div>
-
               {/* التشخيص */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   التشخيص الطبي
                 </label>
                 <input
@@ -595,13 +611,12 @@ export default function TreatmentPlans({ patientId, showToast }) {
                       diagnosis: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
-
               {/* الإجراء المطلوب */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   اسم الإجراء الطبي المطلوب *
                 </label>
                 <input
@@ -615,22 +630,21 @@ export default function TreatmentPlans({ patientId, showToast }) {
                       procedure_name: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
-
-              <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <div className="flex gap-2.5 pt-2 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={() => setActivePlanForNewItem(null)}
-                  className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={addItemMutation.isPending}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                  className="flex-1 py-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {addItemMutation.isPending
                     ? "جاري الإضافة..."

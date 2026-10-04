@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
 import {
@@ -65,22 +66,20 @@ export default function Appointments() {
     gender: "Male",
   });
 
-  //اضافة فلتر حالة الحضور
+  // فلاتر المواعيد
   const [dateFilterMode, setDateFilterMode] = useState("all");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterDate, setFilterDate] = useState("");
+  const [filterDoctor, setFilterDoctor] = useState("");
 
-  // 1. فلاتر التاريخ والطبيب
-  const [filterDate, setFilterDate] = useState(""); // "" يعني الكل، أو تاريخ YYYY-MM-DD
-  const [filterDoctor, setFilterDoctor] = useState(""); // "" يعني كل الأطباء
-
-  // 2. نظام التوست الموحد (نفس صفحة patients)
+  // نظام التوست الموحد
   const [toast, setToast] = useState(null);
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  // 3. حالة مودال إعادة الجدولة
+  // حالة مودال إعادة الجدولة
   const [rescheduleData, setRescheduleData] = useState({
     isOpen: false,
     appointmentId: null,
@@ -89,7 +88,7 @@ export default function Appointments() {
     newDate: "",
   });
 
-  // 4. حالة مودال تحويل الموعد لفاتورة سريعة
+  // حالة مودال تحويل الموعد لفاتورة سريعة
   const [invoiceModal, setInvoiceModal] = useState({
     isOpen: false,
     appointment: null,
@@ -98,22 +97,23 @@ export default function Appointments() {
     paidAmount: "",
   });
 
-  // حالة مودال تأكيد الحذف النهائي
+  // حالة مودال تأكيد الحذف
   const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
     appointmentId: null,
     patientName: "",
   });
 
-  // حالة التحكم في منيو الواتساب المفتوح
+  // حالة منيو الواتساب العائمة
   const [activeWhatsAppMenu, setActiveWhatsAppMenu] = useState(null);
+  const [whatsAppMenuPosition, setWhatsAppMenuPosition] = useState(null);
+  const whatsAppMenuRef = useRef(null);
 
-  // دالة جلب الرابط وفتح الواتساب بأمان ضد الـ Popup Blockers
+  // دالة إرسال رسائل الواتساب
   const handleSendWhatsApp = async (appointmentId, type) => {
     setActiveWhatsAppMenu(null);
 
     const newTab = window.open("about:blank", "_blank");
-
     if (!newTab) {
       showToast(
         "يرجى السماح بالنوافذ المنبثقة لهذا الموقع ثم المحاولة مرة أخرى.",
@@ -121,6 +121,7 @@ export default function Appointments() {
       );
       return;
     }
+    newTab.opener = null;
 
     try {
       const res = await api.get(
@@ -129,7 +130,7 @@ export default function Appointments() {
 
       if (res.data?.url) {
         newTab.location.href = res.data.url;
-        showToast("تم فتح واتساب برسالة المريض.✅", "success");
+        showToast("تم فتح واتساب برسالة المريض بنجاح.", "success");
       } else {
         newTab.close();
         showToast("لم يتم العثور على رابط واتساب صالح.", "error");
@@ -143,7 +144,24 @@ export default function Appointments() {
     }
   };
 
-  // جلب المواعيد مع دعم الفلاتر والـ Retry
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (
+        whatsAppMenuRef.current &&
+        !whatsAppMenuRef.current.contains(e.target)
+      ) {
+        setActiveWhatsAppMenu(null);
+        setWhatsAppMenuPosition(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, []);
+
+  // جلب المواعيد
   const {
     data: appointments = [],
     isLoading,
@@ -163,10 +181,12 @@ export default function Appointments() {
   });
 
   const filteredAppointments = filterStatus
-    ? appointments.filter((apt) => apt.status === filterStatus)
+    ? appointments.filter(
+        (apt) => (apt.status || "").toLowerCase().trim() === filterStatus
+      )
     : appointments;
 
-  // 2. جلب المرضى
+  // جلب المرضى
   const { data: patients = [] } = useQuery({
     queryKey: ["patients"],
     queryFn: async () => {
@@ -175,7 +195,7 @@ export default function Appointments() {
     },
   });
 
-  // 3. جلب الدكاترة
+  // جلب الأطباء
   const { data: doctors = [] } = useQuery({
     queryKey: ["doctors"],
     queryFn: async () => {
@@ -184,7 +204,7 @@ export default function Appointments() {
     },
   });
 
-  // 4. حجز الميعاد
+  // حجز الميعاد
   const createAppointmentMutation = useMutation({
     mutationFn: async (newAppointment) => {
       const res = await api.post("/appointments", newAppointment);
@@ -192,6 +212,7 @@ export default function Appointments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       setIsModalOpen(false);
       setFormData({
         patient_id: "",
@@ -210,7 +231,7 @@ export default function Appointments() {
     },
   });
 
-  // 5. إضافة مريض سريع
+  // إضافة مريض سريع
   const createPatientMutation = useMutation({
     mutationFn: async (patient) => {
       const res = await api.post("/patients", patient);
@@ -230,7 +251,7 @@ export default function Appointments() {
     },
   });
 
-  // 6. تحديث حالة الميعاد
+  // تحديث حالة الميعاد
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }) => {
       const res = await api.patch(`/appointments/${id}/status`, { status });
@@ -245,7 +266,7 @@ export default function Appointments() {
     },
   });
 
-  // 1. إعادة الجدولة
+  // إعادة الجدولة
   const rescheduleMutation = useMutation({
     mutationFn: async ({ id, newDate }) => {
       const res = await api.patch(`/appointments/${id}/reschedule`, {
@@ -272,7 +293,7 @@ export default function Appointments() {
     },
   });
 
-  // 2. تحويل الموعد إلى فاتورة
+  // تحويل الموعد إلى فاتورة
   const convertToInvoiceMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/invoices", payload);
@@ -298,7 +319,7 @@ export default function Appointments() {
     },
   });
 
-  // Mutation حذف الموعد
+  // حذف الموعد
   const deleteAppointmentMutation = useMutation({
     mutationFn: async (id) => {
       const res = await api.delete(`/appointments/${id}`);
@@ -310,7 +331,6 @@ export default function Appointments() {
       showToast("تم حذف الموعد نهائياً بنجاح", "success");
     },
     onError: (err) => {
-      // لو الموعد مربوط بفاتورة نشطة هتطلع الرسالة بالتوست فوراً
       showToast(err.response?.data?.error || "فشل حذف الموعد", "error");
     },
   });
@@ -318,7 +338,7 @@ export default function Appointments() {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.patient_id) {
-      alert("يرجى اختيار مريض من القائمة");
+      showToast("يرجى اختيار مريض من القائمة", "error");
       return;
     }
     createAppointmentMutation.mutate({
@@ -332,14 +352,12 @@ export default function Appointments() {
     createPatientMutation.mutate(newPatientData);
   };
 
-  // فلترة المرضى حسب اللي بيتكتب في الخانة
   const filteredPatients = patients.filter(
     (p) =>
       p.name.toLowerCase().includes(patientInput.toLowerCase()) ||
       p.phone_number.includes(patientInput)
   );
 
-  // اختيار مريض من القائمة المنسدلة العائمة
   const handleSelectPatient = (patient) => {
     setFormData((prev) => ({ ...prev, patient_id: patient.id }));
     setPatientInput(patient.name);
@@ -357,36 +375,37 @@ export default function Appointments() {
     return `${date} - ${time}`;
   };
 
+  // البادجات مطابقة تماماً لقاعدة الشفافية 10% ونظام الألوان
   const statusConfig = {
     scheduled: {
       label: "مجدول",
-      bg: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+      bg: "bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20",
     },
     completed: {
       label: "مكتمل",
-      bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+      bg: "bg-[var(--success-bg)] text-[var(--success-text)] border border-[var(--success-text)]/20",
     },
     cancelled: {
       label: "ملغي",
-      bg: "bg-red-500/10 text-red-400 border-red-500/20",
+      bg: "bg-[var(--danger-bg)] text-[var(--danger-text)] border border-[var(--danger-text)]/20",
     },
     no_show: {
       label: "لم يحضر",
-      bg: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      bg: "bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20",
     },
   };
 
   return (
     <div className="space-y-6">
-      {/* الهيدر */}
+      {/* 🌟 الهيدر الرئيسي */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <CalendarIcon className="w-7 h-7 text-blue-500" />
+          <h1 className="text-xl sm:text-2xl font-semibold text-[var(--text-main)] flex items-center gap-2.5">
+            <CalendarIcon className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--primary-base)]" />
             جدول المواعيد
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            متابعة الحجوزات وتنظيم مواعيد العيادة
+          <p className="text-[var(--text-secondary)] text-xs sm:text-sm mt-1">
+            متابعة الحجوزات وتنظيم مواعيد العيادة بدقة
           </p>
         </div>
 
@@ -398,23 +417,23 @@ export default function Appointments() {
             }));
             setIsModalOpen(true);
           }}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all shadow-lg shadow-blue-600/30"
+          className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
         >
           <Plus className="w-4 h-4" />
           <span>حجز ميعاد جديد</span>
         </button>
       </div>
 
-      {/* شريط الفلاتر */}
-      <div className="flex flex-wrap items-center gap-3 bg-slate-900/60 p-4 border border-slate-800 rounded-2xl">
+      {/* 🌟 شريط الفلاتر (Surface وبوردر Default بدون شادو) */}
+      <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4 ">
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-blue-400" />
-          <span className="text-xs font-medium text-slate-400">
+          <Filter className="w-4 h-4 text-[var(--primary-base)]" />
+          <span className="text-xs font-medium text-[var(--text-secondary)]">
             فلترة المواعيد:
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* فلترة التاريخ */}
           <div className="relative">
             <select
@@ -423,34 +442,29 @@ export default function Appointments() {
                 const value = e.target.value;
                 setDateFilterMode(value);
 
-                if (value === "all") {
-                  setFilterDate("");
-                } else if (value === "today") {
-                  setFilterDate(getTodayString());
-                } else if (value === "tomorrow") {
+                if (value === "all") setFilterDate("");
+                else if (value === "today") setFilterDate(getTodayString());
+                else if (value === "tomorrow")
                   setFilterDate(getTomorrowString());
-                } else if (value === "custom") {
-                  setFilterDate("");
-                }
+                else if (value === "custom") setFilterDate("");
               }}
-              className="appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer min-w-[145px]"
+              className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
             >
               <option value="all">📅 كل التواريخ</option>
               <option value="today">📅 مواعيد اليوم</option>
               <option value="tomorrow">📅 مواعيد الغد</option>
               <option value="custom">📅 تاريخ محدد</option>
             </select>
-
-            <CalendarIcon className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+            <CalendarIcon className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
           </div>
 
-          {/* التاريخ المحدد */}
+          {/* التاريخ المخصص */}
           {dateFilterMode === "custom" && (
             <input
               type="date"
               value={filterDate}
               onChange={(e) => setFilterDate(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+              className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
             />
           )}
 
@@ -459,7 +473,7 @@ export default function Appointments() {
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer min-w-[145px]"
+              className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
             >
               <option value="">📌 كل الحالات</option>
               <option value="scheduled">مجدول</option>
@@ -467,8 +481,7 @@ export default function Appointments() {
               <option value="no_show">لم يحضر</option>
               <option value="cancelled">ملغي</option>
             </select>
-
-            <Filter className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+            <Filter className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
           </div>
 
           {/* فلترة الطبيب */}
@@ -476,7 +489,7 @@ export default function Appointments() {
             <select
               value={filterDoctor}
               onChange={(e) => setFilterDoctor(e.target.value)}
-              className="w-full appearance-none bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              className="w-full appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer transition-colors"
             >
               <option value="">كل الأطباء</option>
               {doctors.map((d) => (
@@ -485,49 +498,45 @@ export default function Appointments() {
                 </option>
               ))}
             </select>
-
-            <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+            <User className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
           </div>
         </div>
       </div>
 
-      {/* جدول المواعيد بكل حالاته (Loading / Error / Empty / Data) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {/* 1. حالة الـ Loading */}
+      {/* 🌟 جدول المواعيد (Surface + Border Default + No Shadow) */}
+      <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden">
         {isLoading ? (
-          <div className="p-16 flex flex-col items-center justify-center text-slate-400 gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+          <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
             <span className="text-sm">جاري تحميل جدول المواعيد...</span>
           </div>
         ) : isError ? (
-          /* 2. حالة الـ Backend Error مع زر الـ Retry */
           <div className="p-12 flex flex-col items-center justify-center text-center gap-3">
-            <AlertTriangle className="w-10 h-10 text-red-400" />
-            <p className="text-white font-medium">
+            <AlertTriangle className="w-10 h-10 text-[var(--danger-text)]" />
+            <p className="text-[var(--text-main)] font-semibold">
               حدث خطأ أثناء تحميل جدول المواعيد
             </p>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[var(--text-muted)]">
               {error?.response?.data?.error ||
                 "تعذر الاتصال بالسيرفر، تأكد من اتصالك وجرب مجدداً"}
             </p>
             <button
               onClick={() => refetch()}
-              className="mt-2 flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-medium transition-colors"
+              className="mt-2 flex items-center gap-2 px-4 py-2 bg-[var(--bg-elevated)] hover:bg-[var(--border-default)] text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium border border-[var(--border-default)] transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               إعادة المحاولة
             </button>
           </div>
         ) : appointments.length === 0 ? (
-          /* 3. حالات الـ Empty State */
           <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
             {filterDate || filterDoctor || filterStatus ? (
               <>
-                <Filter className="w-8 h-8 text-slate-600 mb-1" />
-                <p className="text-white font-medium">
+                <Filter className="w-8 h-8 text-[var(--text-muted)] mb-1" />
+                <p className="text-[var(--text-main)] font-semibold">
                   لا توجد مواعيد بهذه الفلاتر
                 </p>
-                <p className="text-xs text-slate-400 mb-2">
+                <p className="text-xs text-[var(--text-muted)] mb-2">
                   لم يتم العثور على أي حجز مطابق لخيارات التاريخ أو الطبيب
                   المحددة.
                 </p>
@@ -538,23 +547,23 @@ export default function Appointments() {
                     setFilterStatus("");
                     setDateFilterMode("all");
                   }}
-                  className="text-xs text-blue-400 hover:underline"
+                  className="text-xs text-[var(--primary-base)] hover:underline"
                 >
                   إعادة ضبط الفلاتر وعرض الكل
                 </button>
               </>
             ) : (
               <>
-                <CalendarIcon className="w-8 h-8 text-slate-600 mb-1" />
-                <p className="text-white font-medium">
+                <CalendarIcon className="w-8 h-8 text-[var(--text-muted)] mb-1" />
+                <p className="text-[var(--text-main)] font-semibold">
                   لا توجد مواعيد محجوزة حتى الآن
                 </p>
-                <p className="text-xs text-slate-400 mb-3">
+                <p className="text-xs text-[var(--text-muted)] mb-3">
                   جدول العيادة فارغ حالياً، يمكنك بدء حجز ميعاد جديد الآن.
                 </p>
                 <button
                   onClick={() => setIsModalOpen(true)}
-                  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   حجز ميعاد جديد
@@ -563,264 +572,347 @@ export default function Appointments() {
             )}
           </div>
         ) : (
-          /* 4. عرض البيانات */
           <div className="overflow-x-auto">
             <table className="w-full text-right text-sm">
-              <thead className="bg-slate-800/60 text-slate-400 border-b border-slate-800">
+              <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
                 <tr>
-                  <th className="py-4 px-6 font-semibold">المريض</th>
-                  <th className="py-4 px-6 font-semibold">الطبيب المعالج</th>
-                  <th className="py-4 px-6 font-semibold">
+                  <th className="py-3.5 px-5 font-medium text-xs">المريض</th>
+                  <th className="py-3.5 px-5 font-medium text-xs">
+                    الطبيب المعالج
+                  </th>
+                  <th className="py-3.5 px-5 font-medium text-xs">
                     تاريخ ووقت الميعاد
                   </th>
-                  <th className="py-4 px-6 font-semibold">الحالة</th>
-                  <th className="py-4 px-6 font-semibold text-center">
+                  <th className="py-3.5 px-5 font-medium text-xs">الحالة</th>
+                  <th className="py-3.5 px-5 font-medium text-xs text-center">
                     الإجراءات
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {filteredAppointments.map((apt) => (
-                  <tr
-                    key={apt.appointment_id}
-                    className="hover:bg-slate-800/40 transition-colors"
-                  >
-                    <td className="py-4 px-6">
-                      <p className="font-medium text-white">
-                        {apt.patient_name}
-                      </p>
-                      <span
-                        className="text-xs text-slate-400 font-mono"
-                        dir="ltr"
-                      >
-                        {apt.patient_phone}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-blue-400" />
-                        <span>د. {apt.doctor_name}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-2 text-slate-300 font-mono">
-                        <Clock className="w-4 h-4 text-slate-500" />
-                        <span dir="ltr">
-                          {formatDateTime(apt.appointment_date)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span
-                        className={`px-3 py-1 rounded-lg text-xs font-medium border ${
-                          statusConfig[apt.status]?.bg ||
-                          "bg-slate-800 text-slate-400"
-                        }`}
-                      >
-                        {statusConfig[apt.status]?.label || apt.status}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6">
-                      <div className="flex items-center justify-center gap-2">
-                        {/* أزرار تغيير الحالة إذا كان الموعد مجدولاً */}
-                        {apt.status === "scheduled" && (
-                          <>
-                            <button
-                              title="اكتمل الكشف"
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: apt.appointment_id,
-                                  status: "completed",
-                                })
-                              }
-                              className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors"
-                            >
-                              <CheckCircle2 className="w-5 h-5" />
-                            </button>
-                            <button
-                              title="لم يحضر"
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: apt.appointment_id,
-                                  status: "no_show",
-                                })
-                              }
-                              className="p-1.5 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors"
-                            >
-                              <AlertCircle className="w-5 h-5" />
-                            </button>
-                            <button
-                              title="إلغاء الميعاد"
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: apt.appointment_id,
-                                  status: "cancelled",
-                                })
-                              }
-                              className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                            >
-                              <XCircle className="w-5 h-5" />
-                            </button>
-                          </>
-                        )}
-
-                        {/* زر إعادة الجدولة (شغال لكل المواعيد لتعديل وقت الحجز) */}
-                        <button
-                          title="إعادة جدولة الموعد"
-                          onClick={() =>
-                            setRescheduleData({
-                              isOpen: true,
-                              appointmentId: apt.appointment_id,
-                              patientName: apt.patient_name,
-                              currentDate: apt.appointment_date,
-                              newDate: getCurrentDateTimeLocal(),
-                            })
-                          }
-                          className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors"
+              <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
+                {filteredAppointments.map((apt) => {
+                  const status = (apt.status || "").toLowerCase().trim();
+                  return (
+                    <tr
+                      key={apt.appointment_id}
+                      className="hover:bg-[var(--bg-elevated)]/60 transition-colors"
+                    >
+                      {/* المريض */}
+                      <td className="py-3.5 px-5">
+                        <p className="font-semibold text-[var(--text-main)]">
+                          {apt.patient_name}
+                        </p>
+                        <span
+                          className="text-xs text-[var(--text-muted)] font-mono"
+                          dir="ltr"
                         >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
-                        {/* 📲 زرار وقائمة الواتساب الذكية */}
-                        <div className="relative">
-                          <button
-                            title="مراسلة المريض عبر واتساب"
-                            onClick={() =>
-                              setActiveWhatsAppMenu(
-                                activeWhatsAppMenu === apt.appointment_id
-                                  ? null
-                                  : apt.appointment_id
-                              )
-                            }
-                            className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors flex items-center justify-center"
-                          >
-                            <MessageCircle className="w-4 h-4" />
-                          </button>
+                          {apt.patient_phone}
+                        </span>
+                      </td>
 
-                          {/* القائمة المنسدلة للرسائل */}
-                          {activeWhatsAppMenu === apt.appointment_id && (
+                      {/* الطبيب */}
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-[var(--primary-base)]" />
+                          <span className="text-[var(--text-secondary)]">
+                            د. {apt.doctor_name}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* التاريخ والوقت */}
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-2 text-[var(--text-secondary)] font-mono text-xs">
+                          <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                          <span dir="ltr">
+                            {formatDateTime(apt.appointment_date)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* بادج الحالة */}
+                      <td className="py-3.5 px-5">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
+                            statusConfig[status]?.bg ||
+                            "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
+                          }`}
+                        >
+                          {statusConfig[status]?.label || apt.status}
+                        </span>
+                      </td>
+
+                      {/* الإجراءات */}
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {status === "scheduled" && (
                             <>
-                              {/* خلفية شفافة لقفل المنيو عند الضغط في أي مكان برة */}
-                              <div
-                                className="fixed inset-0 z-10"
-                                onClick={() => setActiveWhatsAppMenu(null)}
-                              />
-
-                              <div className="absolute left-0 mt-1 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1 z-20 space-y-1 text-right">
-                                {/* خيار تأكيد الحجز */}
-                                <button
-                                  onClick={() =>
-                                    handleSendWhatsApp(
-                                      apt.appointment_id,
-                                      "confirmation"
-                                    )
-                                  }
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-emerald-400 rounded-lg transition-colors"
-                                >
-                                  <span>🦷</span>
-                                  <span>تأكيد الحجز</span>
-                                </button>
-
-                                {/* خيار تذكير بالموعد */}
-                                <button
-                                  onClick={() =>
-                                    handleSendWhatsApp(
-                                      apt.appointment_id,
-                                      "reminder"
-                                    )
-                                  }
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-blue-400 rounded-lg transition-colors"
-                                >
-                                  <span>🔔</span>
-                                  <span>تذكير بالموعد</span>
-                                </button>
-
-                                {/* خيار عدم الحضور (لو الموعد no_show أو معتذر) */}
-                                {apt.status === "no_show" && (
-                                  <button
-                                    onClick={() =>
-                                      handleSendWhatsApp(
-                                        apt.appointment_id,
-                                        "no_show"
-                                      )
-                                    }
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-amber-400 rounded-lg transition-colors border-t border-slate-800/80 mt-1 pt-1"
-                                  >
-                                    <span>🌸</span>
-                                    <span>متابعة عدم الحضور</span>
-                                  </button>
-                                )}
-                              </div>
+                              <button
+                                title="اكتمل الكشف"
+                                onClick={() =>
+                                  updateStatusMutation.mutate({
+                                    id: apt.appointment_id,
+                                    status: "completed",
+                                  })
+                                }
+                                className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                title="لم يحضر"
+                                onClick={() =>
+                                  updateStatusMutation.mutate({
+                                    id: apt.appointment_id,
+                                    status: "no_show",
+                                  })
+                                }
+                                className="p-1.5 hover:bg-[var(--warning-bg)] text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                              >
+                                <AlertCircle className="w-4 h-4" />
+                              </button>
+                              <button
+                                title="إلغاء الميعاد"
+                                onClick={() =>
+                                  updateStatusMutation.mutate({
+                                    id: apt.appointment_id,
+                                    status: "cancelled",
+                                  })
+                                }
+                                className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
                             </>
                           )}
+
+                          {/* إعادة الجدولة */}
+                          <button
+                            title="إعادة جدولة الموعد"
+                            onClick={() =>
+                              setRescheduleData({
+                                isOpen: true,
+                                appointmentId: apt.appointment_id,
+                                patientName: apt.patient_name,
+                                currentDate: apt.appointment_date,
+                                newDate: getCurrentDateTimeLocal(),
+                              })
+                            }
+                            className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+
+                          {/* 📲 زرار وقائمة الواتساب الذكية */}
+                          <div>
+                            <button
+                              title="مراسلة المريض عبر واتساب"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (activeWhatsAppMenu === apt.appointment_id) {
+                                  setActiveWhatsAppMenu(null);
+                                  setWhatsAppMenuPosition(null);
+                                  return;
+                                }
+
+                                const rect =
+                                  e.currentTarget.getBoundingClientRect();
+                                const gap = 4;
+
+                                setWhatsAppMenuPosition({
+                                  top: rect.bottom + gap,
+                                  left: rect.left,
+                                });
+
+                                setActiveWhatsAppMenu(apt.appointment_id);
+                              }}
+                              className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors flex items-center justify-center"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                            </button>
+
+                            {activeWhatsAppMenu === apt.appointment_id &&
+                              createPortal(
+                                <div
+                                  ref={whatsAppMenuRef}
+                                  dir="rtl"
+                                  style={{
+                                    position: "fixed",
+                                    top: `${whatsAppMenuPosition?.top ?? 0}px`,
+                                    left: `${
+                                      whatsAppMenuPosition?.left ?? 0
+                                    }px`,
+                                    zIndex: 99999,
+                                  }}
+                                  className="w-52 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] shadow-elevation p-1 space-y-1 text-right"
+                                >
+                                  {status === "completed" ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "feedback"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>⭐</span>
+                                        <span>تقييم الزيارة ورأي المريض</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "follow_up"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>🩺</span>
+                                        <span>اطمئنان ومتابعة بعد الكشف</span>
+                                      </button>
+                                    </>
+                                  ) : status === "no_show" ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "no_show"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>🌸</span>
+                                        <span>متابعة عدم الحضور</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "reminder"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>🔔</span>
+                                        <span>اقتراح موعد جديد</span>
+                                      </button>
+                                    </>
+                                  ) : status === "scheduled" ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "confirmation"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>🦷</span>
+                                        <span>تأكيد الحجز</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleSendWhatsApp(
+                                            apt.appointment_id,
+                                            "reminder"
+                                          )
+                                        }
+                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                      >
+                                        <span>🔔</span>
+                                        <span>تذكير بالموعد</span>
+                                      </button>
+                                    </>
+                                  ) : status === "cancelled" ? (
+                                    <div className="px-2.5 py-2 text-xs text-center text-[var(--text-muted)]">
+                                      الموعد ملغي - لا يمكن المراسلة
+                                    </div>
+                                  ) : null}
+                                </div>,
+                                document.body
+                              )}
+                          </div>
+
+                          {/* تحويل لفاتورة */}
+                          <button
+                            title="تحويل الموعد إلى فاتورة فورية"
+                            onClick={() =>
+                              setInvoiceModal({
+                                isOpen: true,
+                                appointment: apt,
+                                itemDescription: "كشف عيادة / استشارة",
+                                itemPrice: "",
+                                paidAmount: "",
+                              })
+                            }
+                            className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </button>
+
+                          {/* حذف الموعد */}
+                          <button
+                            title="حذف الموعد نهائياً"
+                            onClick={() =>
+                              setDeleteModal({
+                                isOpen: true,
+                                appointmentId: apt.appointment_id,
+                                patientName: apt.patient_name,
+                              })
+                            }
+                            className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        {/* 🌟 الزر المباشر لتحويل الموعد إلى فاتورة */}
-                        <button
-                          title="تحويل الموعد إلى فاتورة فورية"
-                          onClick={() =>
-                            setInvoiceModal({
-                              isOpen: true,
-                              appointment: apt,
-                              itemDescription: "كشف عيادة / استشارة",
-                              itemPrice: "",
-                              paidAmount: "",
-                            })
-                          }
-                          className="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors"
-                        >
-                          <Receipt className="w-4 h-4" />
-                        </button>
-                        {/* زر مسح الموعد نهائياً */}
-                        <button
-                          title="حذف الموعد نهائياً"
-                          onClick={() =>
-                            setDeleteModal({
-                              isOpen: true,
-                              appointmentId: apt.appointment_id,
-                              patientName: apt.patient_name,
-                            })
-                          }
-                          className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* نافذة حجز ميعاد جديد */}
+      {/* 🌟 نافذة حجز ميعاد جديد (Elevated + Shadow-elevation) */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-lg w-full rounded-2xl p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <CalendarIcon className="w-5 h-5 text-blue-500" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-lg w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation relative">
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-default)] mb-5">
+              <h2 className="text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <CalendarIcon className="w-5 h-5 text-[var(--primary-base)]" />
                 حجز ميعاد جديد
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* 🌟 الـ Combobox الموحد: خانة بحث واختيار المريض معاً */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* المريض مع Combobox */}
               <div className="relative">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label className="text-xs sm:text-sm font-medium text-[var(--text-secondary)]">
                     المريض *
                   </label>
                   <button
                     type="button"
                     onClick={() => setIsNewPatientModalOpen(true)}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium"
+                    className="text-xs text-[var(--primary-base)] hover:underline flex items-center gap-1 font-medium"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
                     <span>+ مريض جديد</span>
@@ -828,7 +920,7 @@ export default function Appointments() {
                 </div>
 
                 <div className="relative">
-                  <Search className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                  <Search className="w-4 h-4 text-[var(--text-muted)] absolute right-3.5 top-3" />
                   <input
                     type="text"
                     required
@@ -837,25 +929,24 @@ export default function Appointments() {
                     onFocus={() => setIsDropdownOpen(true)}
                     onChange={(e) => {
                       setPatientInput(e.target.value);
-                      setFormData((prev) => ({ ...prev, patient_id: "" })); // تصفير الاختيار لحين الضغط على اسم
+                      setFormData((prev) => ({ ...prev, patient_id: "" }));
                       setIsDropdownOpen(true);
                     }}
-                    className={`w-full bg-slate-950 border ${
+                    className={`w-full bg-[var(--bg-app)] border ${
                       formData.patient_id
-                        ? "border-emerald-500/50"
-                        : "border-slate-700"
-                    } rounded-xl pr-10 pl-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors`}
+                        ? "border-[var(--success-text)]/50"
+                        : "border-[var(--border-default)]"
+                    } rounded-[var(--radius-btn)] pr-10 pl-4 py-2.5 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors`}
                   />
                   {formData.patient_id && (
-                    <Check className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
+                    <Check className="w-4 h-4 text-[var(--success-text)] absolute left-3.5 top-3" />
                   )}
                 </div>
 
-                {/* القائمة العائمة الذكية (Dropdown List) */}
                 {isDropdownOpen && (
-                  <div className="absolute z-20 w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto divide-y divide-slate-800">
+                  <div className="absolute z-20 w-full mt-1 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] shadow-elevation max-h-48 overflow-y-auto divide-y divide-[var(--border-default)]">
                     {filteredPatients.length === 0 ? (
-                      <div className="p-4 text-center text-slate-500 text-xs">
+                      <div className="p-3 text-center text-[var(--text-muted)] text-xs">
                         لا يوجد مريض بهذا الاسم. اضغط على "+ مريض جديد" بالأعلى.
                       </div>
                     ) : (
@@ -863,13 +954,13 @@ export default function Appointments() {
                         <div
                           key={p.id}
                           onClick={() => handleSelectPatient(p)}
-                          className="p-3 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between text-sm transition-colors"
+                          className="p-3 hover:bg-[var(--bg-surface)] cursor-pointer flex items-center justify-between text-sm transition-colors"
                         >
-                          <span className="font-medium text-white">
+                          <span className="font-medium text-[var(--text-main)]">
                             {p.name}
                           </span>
                           <span
-                            className="text-xs text-slate-400 font-mono"
+                            className="text-xs text-[var(--text-muted)] font-mono"
                             dir="ltr"
                           >
                             {p.phone_number}
@@ -883,7 +974,7 @@ export default function Appointments() {
 
               {/* اختيار الدكتور */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
                   الطبيب المعالج *
                 </label>
                 <select
@@ -892,7 +983,7 @@ export default function Appointments() {
                   onChange={(e) =>
                     setFormData({ ...formData, doctor_id: e.target.value })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] text-sm transition-colors"
                 >
                   <option value="">-- اختر الطبيب المعالج --</option>
                   {doctors.map((d) => (
@@ -905,7 +996,7 @@ export default function Appointments() {
 
               {/* التاريخ والوقت */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
                   تاريخ ووقت الميعاد *
                 </label>
                 <input
@@ -919,13 +1010,13 @@ export default function Appointments() {
                       appointment_date: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono text-sm transition-colors"
                 />
               </div>
 
               {/* ملاحظات */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
                   ملاحظات الكشف
                 </label>
                 <textarea
@@ -935,22 +1026,22 @@ export default function Appointments() {
                     setFormData({ ...formData, notes: e.target.value })
                   }
                   placeholder="مثال: كشف أولي، فحص ألم في الفك..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] text-sm transition-colors"
                 ></textarea>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-800">
+              <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 px-4 py-2.5 border border-slate-700 hover:bg-slate-800 text-slate-300 rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 border border-[var(--border-default)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] text-sm font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={createAppointmentMutation.isPending}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   {createAppointmentMutation.isPending
                     ? "جاري الحجز..."
@@ -962,18 +1053,18 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* نافذة إضافة مريض سريع */}
+      {/* 🌟 نافذة إضافة مريض سريع */}
       {isNewPatientModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-2xl p-6 shadow-2xl relative">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-blue-500" />
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-sm w-full rounded-[var(--radius-card)] p-5 shadow-elevation relative">
+            <h3 className="text-base font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-[var(--primary-base)]" />
               إضافة مريض سريعاً
             </h3>
 
-            <form onSubmit={handleQuickPatientSubmit} className="space-y-4">
+            <form onSubmit={handleQuickPatientSubmit} className="space-y-3.5">
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   اسم المريض *
                 </label>
                 <input
@@ -987,12 +1078,12 @@ export default function Appointments() {
                       name: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   رقم الهاتف *
                 </label>
                 <input
@@ -1006,12 +1097,12 @@ export default function Appointments() {
                       phone_number: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   النوع
                 </label>
                 <select
@@ -1022,7 +1113,7 @@ export default function Appointments() {
                       gender: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 >
                   <option value="Male">ذكر</option>
                   <option value="Female">أنثى</option>
@@ -1033,14 +1124,14 @@ export default function Appointments() {
                 <button
                   type="button"
                   onClick={() => setIsNewPatientModalOpen(false)}
-                  className="flex-1 py-2 border border-slate-700 text-slate-400 rounded-xl text-xs"
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={createPatientMutation.isPending}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl text-xs font-medium"
+                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   {createPatientMutation.isPending
                     ? "جاري الإضافة..."
@@ -1052,34 +1143,34 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 1. نافذة إعادة الجدولة (Reschedule Modal) */}
+      {/* 🌟 نافذة إعادة الجدولة */}
       {rescheduleData.isOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Clock className="w-5 h-5 text-blue-500" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
+              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <Clock className="w-5 h-5 text-[var(--primary-base)]" />
                 إعادة جدولة الموعد
               </h3>
               <button
                 onClick={() =>
                   setRescheduleData({ ...rescheduleData, isOpen: false })
                 }
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[var(--text-secondary)]">
               تعديل موعد المريض:{" "}
-              <span className="font-bold text-white">
+              <span className="font-semibold text-[var(--text-main)]">
                 {rescheduleData.patientName}
               </span>
             </p>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                 التاريخ والوقت الجديد *
               </label>
               <input
@@ -1093,17 +1184,17 @@ export default function Appointments() {
                     newDate: e.target.value,
                   })
                 }
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
               />
             </div>
 
-            <div className="flex gap-3 pt-3 border-t border-slate-800">
+            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
                 onClick={() =>
                   setRescheduleData({ ...rescheduleData, isOpen: false })
                 }
-                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
               >
                 إلغاء
               </button>
@@ -1116,7 +1207,7 @@ export default function Appointments() {
                     newDate: new Date(rescheduleData.newDate).toISOString(),
                   })
                 }
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {rescheduleMutation.isPending
                   ? "جاري الحفظ..."
@@ -1127,35 +1218,35 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 2. نافذة تحويل الموعد إلى فاتورة فورية (Convert to Invoice Modal) */}
+      {/* 🌟 نافذة تحويل الموعد إلى فاتورة فورية */}
       {invoiceModal.isOpen && invoiceModal.appointment && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-emerald-500" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
+              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-[var(--primary-base)]" />
                 إصدار فاتورة من الموعد
               </h3>
               <button
                 onClick={() =>
                   setInvoiceModal({ ...invoiceModal, isOpen: false })
                 }
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1 text-xs">
-              <p className="text-slate-300">
+            <div className="bg-[var(--bg-elevated)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-default)] space-y-1 text-xs">
+              <p className="text-[var(--text-secondary)]">
                 المريض:{" "}
-                <span className="font-bold text-white">
+                <span className="font-semibold text-[var(--text-main)]">
                   {invoiceModal.appointment.patient_name}
                 </span>
               </p>
-              <p className="text-slate-300">
+              <p className="text-[var(--text-secondary)]">
                 الطبيب:{" "}
-                <span className="font-bold text-blue-400">
+                <span className="font-semibold text-[var(--primary-base)]">
                   د. {invoiceModal.appointment.doctor_name}
                 </span>
               </p>
@@ -1197,10 +1288,10 @@ export default function Appointments() {
 
                 convertToInvoiceMutation.mutate(payload);
               }}
-              className="space-y-3"
+              className="space-y-3.5"
             >
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   وصف الخدمة / البند *
                 </label>
                 <input
@@ -1213,13 +1304,13 @@ export default function Appointments() {
                       itemDescription: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     السعر الإجمالي (ج.م) *
                   </label>
                   <input
@@ -1235,12 +1326,12 @@ export default function Appointments() {
                         itemPrice: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     المدفوع الآن نقداً (ج.م)
                   </label>
                   <input
@@ -1255,25 +1346,25 @@ export default function Appointments() {
                         paidAmount: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                   />
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-3 border-t border-slate-800">
+              <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={() =>
                     setInvoiceModal({ ...invoiceModal, isOpen: false })
                   }
-                  className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={convertToInvoiceMutation.isPending}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {convertToInvoiceMutation.isPending
                     ? "جاري الإصدار..."
@@ -1285,50 +1376,51 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 3. التوست الموحد (بنفس كلاس z-[100] ليظهر فوق أي نافذة) */}
+      {/* 🌟 التوست الموحد (مربوط بالـ Tokens مع شادو المودالز) */}
       {toast && (
         <div
-          className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border text-sm font-medium transition-all transform animate-in slide-in-from-bottom-5 ${
+          className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-btn)] shadow-elevation border text-sm font-medium transition-all ${
             toast.type === "error"
-              ? "bg-red-950/90 border-red-800 text-red-200"
-              : "bg-emerald-950/90 border-emerald-800 text-emerald-200"
+              ? "bg-[var(--bg-elevated)] border-[var(--danger-text)]/30 text-[var(--danger-text)]"
+              : "bg-[var(--bg-elevated)] border-[var(--success-text)]/30 text-[var(--success-text)]"
           }`}
         >
           {toast.type === "error" ? (
-            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-[var(--danger-text)] shrink-0" />
           ) : (
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+            <Check className="w-4 h-4 text-[var(--success-text)] shrink-0" />
           )}
           <span>{toast.message}</span>
         </div>
       )}
-      {/* نافذة تأكيد حذف الموعد */}
+
+      {/* 🌟 نافذة تأكيد حذف الموعد */}
       {deleteModal.isOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-red-400">
-              <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
-                <Trash2 className="w-6 h-6" />
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
+            <div className="flex items-center gap-3 text-[var(--danger-text)]">
+              <div className="p-2.5 bg-[var(--danger-bg)] rounded-[var(--radius-btn)] border border-[var(--danger-text)]/20">
+                <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-base font-semibold text-[var(--text-main)]">
                   تأكيد حذف الموعد
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[var(--text-muted)]">
                   هذا الإجراء سيحذف الموعد نهائياً من قاعدة البيانات
                 </p>
               </div>
             </div>
 
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-[var(--text-secondary)]">
               هل أنت متأكد من حذف موعد المريض{" "}
-              <span className="font-bold text-white">
+              <span className="font-semibold text-[var(--text-main)]">
                 "{deleteModal.patientName}"
               </span>
               ؟
             </p>
 
-            <div className="flex gap-3 pt-3 border-t border-slate-800">
+            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
                 onClick={() =>
@@ -1338,7 +1430,7 @@ export default function Appointments() {
                     patientName: "",
                   })
                 }
-                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
               >
                 إلغاء
               </button>
@@ -1348,7 +1440,7 @@ export default function Appointments() {
                 onClick={() =>
                   deleteAppointmentMutation.mutate(deleteModal.appointmentId)
                 }
-                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-[var(--danger-text)] hover:opacity-90 text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {deleteAppointmentMutation.isPending
                   ? "جاري الحذف..."

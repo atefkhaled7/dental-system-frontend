@@ -8,43 +8,43 @@ export default function Layout() {
 
   return (
     <div
-      className="min-h-screen bg-slate-950 flex flex-col lg:flex-row"
+      className="min-h-screen bg-[var(--bg-app)] flex flex-col lg:flex-row"
       dir="rtl"
     >
-      {/* 🌟 شريط علوي للموبايل: الزرار ع اليمين واللوجو ع الشمال */}
-      <header className="lg:hidden bg-slate-900 border-b border-slate-800 p-3.5 flex items-center justify-between sticky top-0 z-30 shadow-md">
-        {/* 1. زر المنيو على اليمين (نفس مكان فتح القائمة) */}
+      {/* 🌟 شريط علوي للموبايل: متوافق مع نظام الطبقات بدون شادو */}
+      <header className="lg:hidden bg-[var(--bg-surface)] border-b border-[var(--border-default)] p-3.5 flex items-center justify-between sticky top-0 z-30">
+        {/* 1. زر المنيو على اليمين */}
         <button
           onClick={() => setIsMobileMenuOpen(true)}
-          className="p-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition-colors flex items-center justify-center"
+          className="p-2 bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] border border-[var(--border-default)] transition-colors flex items-center justify-center"
           aria-label="فتح القائمة"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* 2. لوجو واسم العيادة على الشمال */}
+        {/* 2. لوجو واسم العيادة على الشمال */}   
         <div className="flex items-center gap-2.5">
           <div className="text-left">
-            <h1 className="text-sm font-bold text-white leading-none">
-              Dental SaaS
+            <h1 className="text-sm font-semibold text-[var(--text-main)] leading-none">
+            CUROSTA 
             </h1>
-            <span className="text-[10px] text-slate-500 block mt-0.5">
+            <span className="text-[10px] text-[var(--text-muted)] block mt-0.5 font-normal">
               إدارة العيادة
             </span>
           </div>
-          <div className="p-2 bg-blue-600/20 text-blue-400 rounded-lg">
+          <div className="p-2 bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)]">
             <Activity className="w-4 h-4" />
           </div>
         </div>
       </header>
 
-      {/* 🌟 1. القائمة الجانبية (Desktop Sidebar + Mobile Drawer) */}
+      {/* 🌟 1. القائمة الجانبية */}
       <Sidebar
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
-      {/* 🌟 2. شباك المحتوى المتغير (100% عرض على الموبايل بدون زحام) */}
+      {/* 🌟 2. مساحة المحتوى */}
       <main className="flex-1 w-full p-3.5 sm:p-5 md:p-6 lg:p-8 overflow-y-auto min-w-0">
         <Outlet />
       </main>

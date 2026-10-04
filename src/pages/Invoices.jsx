@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { printInvoice } from "../utils/printInvoice";
 import {
   CreditCard,
   Plus,
@@ -27,23 +28,28 @@ import {
 const PAYMENT_STATUS_CONFIG = {
   paid: {
     label: "مدفوع",
-    badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    badge: "bg-[#10B981]/10 text-[#34D399] border-[#10B981]/20",
     icon: "✅",
   },
   pending: {
     label: "معلق",
-    badge: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    badge: "bg-[#F59E0B]/10 text-[#FBBF24] border-[#F59E0B]/20",
     icon: "🟡",
   },
   failed: {
     label: "فشل",
-    badge: "bg-red-500/10 text-red-400 border-red-500/20",
+    badge: "bg-[#EF4444]/10 text-[#F87171] border-[#EF4444]/20",
     icon: "❌",
   },
   cancelled: {
     label: "ملغي",
-    badge: "bg-slate-700/30 text-slate-400 border-slate-700",
+    badge: "bg-[#172033] text-[#64748B] border-[#243047]",
     icon: "⚪",
+  },
+  needs_review: {
+    label: "تحتاج مراجعة",
+    badge: "bg-[#F59E0B]/10 text-[#FBBF24] border-[#F59E0B]/20",
+    icon: "⚠️",
   },
   refunded: {
     label: "مسترد",
@@ -76,7 +82,6 @@ export default function Invoices() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  // النوافذ المنبثقة
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -84,33 +89,28 @@ export default function Invoices() {
 
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
-  // Combobox المريض
   const [patientInput, setPatientInput] = useState("");
   const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false);
 
-  // فورم إضافة مريض سريع
   const [newPatientData, setNewPatientData] = useState({
     name: "",
     phone_number: "",
     gender: "Male",
   });
 
-  // التحكم في مودال الدفع أونلاين
   const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
   const [onlineSelectedInvoice, setOnlineSelectedInvoice] = useState(null);
-  const [paymentType, setPaymentType] = useState("full"); // 'full' | 'custom'
+  const [paymentType, setPaymentType] = useState("full");
   const [customAmount, setCustomAmount] = useState("");
-  const [generatedLinkData, setGeneratedLinkData] = useState(null); // تخزين نتيجة الرابط بعد توليده
+  const [generatedLinkData, setGeneratedLinkData] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Mutation توليد رابط الدفع
   const createOnlinePaymentMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/payments/online/create", payload);
       return res.data;
     },
     onSuccess: (data) => {
-      // التحول مباشرة لواجهة النجاح جوه نفس المودال
       setGeneratedLinkData(data);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
     },
@@ -119,7 +119,6 @@ export default function Invoices() {
     },
   });
 
-  // فتح المودال وتصفير البيانات
   const handleOpenOnlineModal = (inv) => {
     setOnlineSelectedInvoice(inv);
     setPaymentType("full");
@@ -129,7 +128,6 @@ export default function Invoices() {
     setIsOnlineModalOpen(true);
   };
 
-  // إرسال طلب توليد الرابط
   const handleGenerateOnlineLink = (e) => {
     e.preventDefault();
     const remaining =
@@ -150,7 +148,6 @@ export default function Invoices() {
     });
   };
 
-  // نسخ الرابط للـ Clipboard
   const handleCopyLink = () => {
     if (generatedLinkData?.payment_url) {
       navigator.clipboard.writeText(generatedLinkData.payment_url);
@@ -159,7 +156,6 @@ export default function Invoices() {
     }
   };
 
-  // جلب الدكاترة لاختيار الطبيب المعالج
   const { data: doctors = [] } = useQuery({
     queryKey: ["doctors"],
     queryFn: async () => {
@@ -171,11 +167,9 @@ export default function Invoices() {
   const getCurrentDateTimeLocal = () => {
     const now = new Date();
     const offset = now.getTimezoneOffset() * 60000;
-
     return new Date(now.getTime() - offset).toISOString().slice(0, 16);
   };
 
-  // فورم إنشاء فاتورة (افتراضياً: كشف أسنان أولي بـ 200 جنيه)
   const defaultInvoiceState = {
     patient_id: "",
     appointment_id: "",
@@ -199,20 +193,15 @@ export default function Invoices() {
 
   const [invoiceForm, setInvoiceForm] = useState(defaultInvoiceState);
 
-  // فورم تسجيل الدفع
   const [paymentForm, setPaymentForm] = useState({
     amount: "",
     payment_method: "cash",
     notes: "",
   });
 
-  // حالة عرض الفواتير المؤرشفة
   const [showArchived, setShowArchived] = useState(false);
-
-  // حالة مودال تأكيد أرشفة الفاتورة
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
 
-  // 1. جلب الفواتير
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["invoices", searchTerm, statusFilter, showArchived],
     queryFn: async () => {
@@ -227,7 +216,6 @@ export default function Invoices() {
     },
   });
 
-  // 2. جلب المرضى
   const { data: patients = [] } = useQuery({
     queryKey: ["patients"],
     queryFn: async () => {
@@ -236,7 +224,6 @@ export default function Invoices() {
     },
   });
 
-  // 3. جلب المواعيد (لربط الفاتورة بميعاد ودكتور)
   const { data: appointments = [] } = useQuery({
     queryKey: ["appointments"],
     queryFn: async () => {
@@ -245,7 +232,6 @@ export default function Invoices() {
     },
   });
 
-  // 4. جلب أكواد العمليات
   const { data: procedureCodes = [] } = useQuery({
     queryKey: ["procedureCodes"],
     queryFn: async () => {
@@ -254,7 +240,6 @@ export default function Invoices() {
     },
   });
 
-  // 5. إنشاء فاتورة
   const createInvoiceMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/invoices", payload);
@@ -272,7 +257,6 @@ export default function Invoices() {
     },
   });
 
-  // 6. إضافة مريض سريع
   const createPatientMutation = useMutation({
     mutationFn: async (p) => {
       const res = await api.post("/patients", p);
@@ -291,7 +275,6 @@ export default function Invoices() {
     },
   });
 
-  // 7. تحصيل دفعة
   const recordPaymentMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/payments", payload);
@@ -327,7 +310,6 @@ export default function Invoices() {
     },
   });
 
-  // جلب تفاصيل الفاتورة كاملة (البنود والمدفوعات والدكتور)
   const { data: invoiceDetails, isLoading: isDetailsLoading } = useQuery({
     queryKey: ["invoiceDetails", selectedInvoice?.id],
     queryFn: async () => {
@@ -338,7 +320,6 @@ export default function Invoices() {
     enabled: !!selectedInvoice?.id && isDetailsModalOpen,
   });
 
-  // إضافة وحذف البنود
   const handleAddItem = () => {
     setInvoiceForm((prev) => ({
       ...prev,
@@ -447,7 +428,6 @@ export default function Invoices() {
       p.phone_number.includes(patientInput)
   );
 
-  // مواعيد المريض المختار
   const patientAppointments = appointments.filter(
     (a) => a.patient_id === invoiceForm.patient_id
   );
@@ -455,19 +435,19 @@ export default function Invoices() {
   const statusConfig = {
     unpaid: {
       label: "غير مدفوعة",
-      bg: "bg-red-500/10 text-red-400 border-red-500/20",
+      bg: "bg-[#EF4444]/10 text-[#F87171] border-[#EF4444]/20",
     },
     partially_paid: {
       label: "مدفوعة جزئياً",
-      bg: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      bg: "bg-[#F59E0B]/10 text-[#FBBF24] border-[#F59E0B]/20",
     },
     paid: {
       label: "مدفوعة بالكامل",
-      bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+      bg: "bg-[#10B981]/10 text-[#34D399] border-[#10B981]/20",
     },
     cancelled: {
       label: "ملغاة",
-      bg: "bg-slate-700/50 text-slate-400 border-slate-700",
+      bg: "bg-[#172033] text-[#64748B] border-[#243047]",
     },
   };
 
@@ -475,153 +455,12 @@ export default function Invoices() {
     cash: "كاش 💵",
     card: "بطاقة بنكية 💳",
     bank_transfer: "تحويل / فودافون كاش 📱",
+    online: "دفع إلكتروني 🌐",
     other: "أخرى",
   };
 
-  // دالة حماية من الـ XSS لتعقيم النصوص قبل طباعتها
-  const escapeHtml = (str) => {
-    if (str === null || str === undefined) return "";
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  };
-
   const handlePrintInvoice = () => {
-    if (!invoiceDetails && !selectedInvoice) return;
-    const inv = invoiceDetails || selectedInvoice;
-
-    const printWindow = window.open("", "_blank", "width=850,height=900");
-    if (!printWindow) {
-      alert(
-        "المتصفح منع فتح نافذة الطباعة. من فضلك اسمح بالنوافذ المنبثقة (popups) لهذا الموقع من إعدادات المتصفح ثم حاول تاني."
-      );
-      return;
-    }
-
-    // تعقيم البيانات
-    const safePatientName = escapeHtml(inv.patient_name);
-    const safePatientPhone = escapeHtml(inv.patient_phone || "-");
-    const safeDoctorName = escapeHtml(inv.doctor_name || "كشف عام");
-    const safeInvoiceId = escapeHtml(inv.id);
-    const safeStatus =
-      inv.status === "paid"
-        ? "مدفوعة بالكامل"
-        : inv.status === "partially_paid"
-        ? "مدفوعة جزئياً"
-        : inv.status === "cancelled"
-        ? "ملغاة"
-        : "غير مدفوعة";
-
-    printWindow.document.write(`
-          <!DOCTYPE html>
-          <html dir="rtl" lang="ar">
-            <head>
-              <meta charset="utf-8" />
-              <title>فاتورة ضريبية #${safeInvoiceId}</title>
-              <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #0f172a; margin: 0; }
-                .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px; }
-                .clinic-name { font-size: 26px; font-weight: bold; color: #1e3a8a; margin-bottom: 4px; }
-                .sub { font-size: 13px; color: #64748b; }
-                .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 25px; font-size: 13px; line-height: 1.8; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-                th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: right; font-size: 13px; }
-                th { background: #f1f5f9; color: #475569; font-weight: 600; }
-                .summary { width: 320px; margin-right: auto; margin-left: 0; font-size: 14px; margin-top: 20px; }
-                .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #cbd5e1; }
-                .total { font-weight: bold; font-size: 17px; color: #1e3a8a; border-top: 2px solid #0f172a; border-bottom: none; padding-top: 10px; margin-top: 6px; }
-                .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-              </style>
-            </head>
-            <body>
-              <div class="header">
-                <div class="clinic-name">عيادة الأسنان التخصصية</div>
-                <div class="sub">فاتورة علاج رقم #${safeInvoiceId} • بتاريخ ${new Date(
-      inv.created_at
-    ).toLocaleDateString("en-GB")}</div>
-              </div>
-              <div class="meta-box">
-                <div>
-                  <strong>اسم المريض:</strong> ${safePatientName}<br/>
-                  <strong>رقم الهاتف:</strong> ${safePatientPhone}<br/>
-                </div>
-                <div>
-                  <strong>الطبيب المعالج:</strong> د. ${safeDoctorName}<br/>
-                  <strong>حالة الفاتورة:</strong> ${safeStatus}<br/>
-                </div>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>البند / الخدمة</th>
-                    <th style="text-align: center;">الكمية</th>
-                    <th style="text-align: left;">سعر الوحدة</th>
-                    <th style="text-align: left;">الإجمالي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${(
-                    inv.items || [
-                      {
-                        description: "كشف وعلاج أسنان",
-                        quantity: 1,
-                        unit_price: inv.total_amount,
-                        total_price: inv.total_amount,
-                      },
-                    ]
-                  )
-                    .map(
-                      (it) => `
-                    <tr>
-                      <td>${escapeHtml(it.description)}</td>
-                      <td style="text-align: center;">${
-                        Number(it.quantity) || 1
-                      }</td>
-                      <td style="text-align: left;">${parseFloat(
-                        it.unit_price || 0
-                      ).toLocaleString("en-US")} ج.م</td>
-                      <td style="text-align: left; font-weight: bold;">${parseFloat(
-                        it.total_price || 0
-                      ).toLocaleString("en-US")} ج.م</td>
-                    </tr>
-                  `
-                    )
-                    .join("")}
-                </tbody>
-              </table>
-              <div class="summary">
-                <div class="summary-row">
-                  <span>إجمالي الفاتورة:</span>
-                  <span>${parseFloat(inv.total_amount || 0).toLocaleString(
-                    "en-US"
-                  )} ج.م</span>
-                </div>
-                <div class="summary-row" style="color: #059669;">
-                  <span>المدفوع:</span>
-                  <span>${parseFloat(inv.paid_amount || 0).toLocaleString(
-                    "en-US"
-                  )} ج.م</span>
-                </div>
-                <div class="summary-row total" style="color: #dc2626;">
-                  <span>المتبقي:</span>
-                  <span>${parseFloat(inv.remaining_amount || 0).toLocaleString(
-                    "en-US"
-                  )} ج.م</span>
-                </div>
-              </div>
-              <div class="footer">
-                نتمنى لكم دوام الصحة والعافية • نسعد دائماً بخدمتكم
-              </div>
-              <script>
-                window.onload = function() { window.print(); window.close(); }
-              </script>
-            </body>
-          </html>
-        `);
-    printWindow.document.close();
+    printInvoice(invoiceDetails || selectedInvoice);
   };
 
   return (
@@ -629,11 +468,11 @@ export default function Invoices() {
       {/* الهيدر العلوي */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <CreditCard className="w-7 h-7 text-blue-500" />
+          <h1 className="text-2xl font-semibold text-[#F8FAFC] flex items-center gap-3">
+            <CreditCard className="w-7 h-7 text-[#0D9488]" />
             الفواتير والمالية
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
+          <p className="text-[#94A3B8] text-sm mt-1">
             إصدار الفواتير وتحصيل المدفوعات النقدية والإلكترونية
           </p>
         </div>
@@ -643,7 +482,7 @@ export default function Invoices() {
             setInvoiceForm(defaultInvoiceState);
             setIsCreateModalOpen(true);
           }}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all shadow-lg shadow-blue-600/30"
+          className="flex items-center justify-center gap-2 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] px-5 py-2.5 rounded-md font-medium text-[13px] transition-colors"
         >
           <Plus className="w-4 h-4" />
           <span>إنشاء فاتورة جديدة</span>
@@ -653,13 +492,13 @@ export default function Invoices() {
       {/* شريط الفلاتر والبحث */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+          <Search className="w-4 h-4 text-[#64748B] absolute right-3.5 top-3.5" />
           <input
             type="text"
             placeholder="ابحث باسم المريض أو رقمه..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pr-10 pl-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-[#111827] border border-[#243047] rounded-md pr-10 pl-4 py-2 text-[13px] text-[#F8FAFC] placeholder-[#64748B] focus:outline-none focus:border-[#0D9488]"
           />
         </div>
 
@@ -674,10 +513,10 @@ export default function Invoices() {
               <button
                 key={tab.value}
                 onClick={() => setStatusFilter(tab.value)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors border ${
+                className={`px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border ${
                   statusFilter === tab.value
-                    ? "bg-blue-600 text-white border-blue-500"
-                    : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+                    ? "bg-[#042F2E] text-[#0D9488] border-[#0D9488]"
+                    : "bg-[#111827] text-[#94A3B8] border-[#243047] hover:bg-[#172033] hover:text-[#F8FAFC]"
                 }`}
               >
                 {tab.label}
@@ -685,13 +524,12 @@ export default function Invoices() {
             ))}
           </div>
 
-          {/* 🌟 زرار عرض الفواتير المؤرشفة / النشطة */}
           <button
             onClick={() => setShowArchived(!showArchived)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap border transition-all ${
+            className={`px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap border transition-all ${
               showArchived
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
-                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                ? "bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#FBBF24] hover:bg-[#F59E0B]/20"
+                : "bg-[#111827] border-[#243047] text-[#94A3B8] hover:bg-[#172033] hover:text-[#F8FAFC]"
             }`}
           >
             {showArchived ? "العودة للفواتير النشطة" : "الفواتير المؤرشفة"}
@@ -699,36 +537,42 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* جدول الفواتير مع إظهار المتبقي بوضوح */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      {/* جدول الفواتير */}
+      <div className="bg-[#111827] border border-[#243047] rounded-xl overflow-hidden">
         {isLoading ? (
-          <div className="p-12 flex flex-col items-center justify-center text-slate-400 gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <span>جاري تحميل الفواتير...</span>
+          <div className="p-12 flex flex-col items-center justify-center text-[#94A3B8] gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-[#0D9488]" />
+            <span className="text-[13px]">جاري تحميل الفواتير...</span>
           </div>
         ) : invoices.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
+          <div className="p-12 text-center text-[#64748B] text-[13px]">
             لا توجد فواتير مطابقة حتى الآن.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
-              <thead className="bg-slate-800/60 text-slate-400 border-b border-slate-800">
+            <table className="w-full text-right">
+              <thead className="bg-[#080D18] text-[#CBD5E1] border-b border-[#243047]">
                 <tr>
-                  <th className="py-4 px-6 font-semibold">المريض</th>
-                  <th className="py-4 px-6 font-semibold">إجمالي الفاتورة</th>
-                  <th className="py-4 px-6 font-semibold">المدفوع</th>
-                  <th className="py-4 px-6 font-semibold">
+                  <th className="py-3 px-4 font-medium text-[13px]">المريض</th>
+                  <th className="py-3 px-4 font-medium text-[13px]">
+                    إجمالي الفاتورة
+                  </th>
+                  <th className="py-3 px-4 font-medium text-[13px]">المدفوع</th>
+                  <th className="py-3 px-4 font-medium text-[13px]">
                     المتبقي على الحساب
                   </th>
-                  <th className="py-4 px-6 font-semibold">حالة الدفع</th>
-                  <th className="py-4 px-6 font-semibold">تاريخ الفاتورة</th>
-                  <th className="py-4 px-6 font-semibold text-center">
+                  <th className="py-3 px-4 font-medium text-[13px]">
+                    حالة الدفع
+                  </th>
+                  <th className="py-3 px-4 font-medium text-[13px]">
+                    تاريخ الفاتورة
+                  </th>
+                  <th className="py-3 px-4 font-medium text-[13px] text-center">
                     الإجراءات
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
+              <tbody className="divide-y divide-[#243047] text-[#94A3B8]">
                 {invoices.map((inv) => {
                   const rem = parseFloat(inv.remaining_amount) || 0;
                   const paid = parseFloat(inv.paid_amount) || 0;
@@ -736,67 +580,60 @@ export default function Invoices() {
                   return (
                     <tr
                       key={inv.id}
-                      className="hover:bg-slate-800/40 transition-colors"
+                      className="hover:bg-[#172033] transition-colors"
                     >
-                      {/* المريض */}
-                      <td className="py-4 px-6">
-                        <p className="font-medium text-white">
+                      <td className="py-3 px-4">
+                        <p className="font-medium text-[#F8FAFC] text-[13px]">
                           {inv.patient_name}
                         </p>
                         <span
-                          className="text-xs text-slate-400 font-mono"
+                          className="text-xs text-[#64748B] font-mono"
                           dir="ltr"
                         >
                           {inv.patient_phone}
                         </span>
                       </td>
 
-                      {/* الإجمالي */}
-                      <td className="py-4 px-6 font-mono text-white font-bold">
+                      <td className="py-3 px-4 font-mono text-[#F8FAFC] font-semibold text-[13px]">
                         {parseFloat(inv.total_amount).toLocaleString("en-US")}{" "}
                         ج.م
                       </td>
 
-                      {/* المدفوع */}
-                      <td className="py-4 px-6 font-mono text-emerald-400">
+                      <td className="py-3 px-4 font-mono text-[#34D399] text-[13px]">
                         {paid.toLocaleString("en-US")} ج.م
                       </td>
 
-                      {/* المتبقي (بلون أحمر أو بارز لو باقي عليه فلوس) */}
-                      <td className="py-4 px-6 font-mono">
+                      <td className="py-3 px-4 font-mono">
                         {rem > 0 ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 font-bold">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#EF4444]/10 text-[#F87171] border border-[#EF4444]/20 font-semibold text-xs">
                             {rem.toLocaleString("en-US")} ج.م
                           </span>
                         ) : (
-                          <span className="text-slate-500 text-xs">
+                          <span className="text-[#64748B] text-xs">
                             خالص 0 ج.م
                           </span>
                         )}
                       </td>
 
-                      {/* بادج الحالة */}
-                      <td className="py-4 px-6">
+                      <td className="py-3 px-4">
                         <span
-                          className={`px-3 py-1 rounded-lg text-xs font-medium border ${
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                             statusConfig[inv.status]?.bg ||
-                            "bg-slate-800 text-slate-400"
+                            "bg-[#172033] text-[#64748B] border-[#243047]"
                           }`}
                         >
                           {statusConfig[inv.status]?.label || inv.status}
                         </span>
                       </td>
 
-                      {/* التاريخ */}
                       <td
-                        className="py-4 px-6 text-slate-400 text-xs font-mono"
+                        className="py-3 px-4 text-[#64748B] text-xs font-mono"
                         dir="ltr"
                       >
                         {new Date(inv.created_at).toLocaleDateString("en-GB")}
                       </td>
 
-                      {/* الإجراءات */}
-                      <td className="py-4 px-6">
+                      <td className="py-3 px-4">
                         <div className="flex items-center justify-center gap-2">
                           <button
                             title="عرض تفاصيل الفاتورة"
@@ -804,7 +641,7 @@ export default function Invoices() {
                               setSelectedInvoice(inv);
                               setIsDetailsModalOpen(true);
                             }}
-                            className="p-1.5 hover:bg-slate-800 text-blue-400 rounded-lg transition-colors"
+                            className="p-1.5 hover:bg-[#111827] text-[#0D9488] rounded-md transition-colors"
                           >
                             <FileText className="w-5 h-5" />
                           </button>
@@ -812,21 +649,19 @@ export default function Invoices() {
                           {(inv.status === "unpaid" ||
                             inv.status === "partially_paid") && (
                             <div className="flex items-center gap-1.5">
-                              {/* الزرار اليدوي الحالي */}
                               <button
                                 title="تسجيل دفعة (تحصيل نقدي)"
                                 onClick={() => handleOpenPayment(inv)}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-medium transition-colors"
+                                className="flex items-center gap-1 px-2.5 py-1 bg-[#10B981]/10 hover:bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/20 rounded-md text-xs font-medium transition-colors"
                               >
                                 <DollarSign className="w-3.5 h-3.5" />
                                 <span>تحصيل</span>
                               </button>
 
-                              {/* الزرار الجديد للأونلاين والواتساب */}
                               <button
                                 title="إنشاء رابط دفع إلكتروني وواتساب"
                                 onClick={() => handleOpenOnlineModal(inv)}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-lg text-xs font-medium transition-colors"
+                                className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-[#172033] text-[#0D9488] border border-[#243047] hover:border-[#0D9488]/40 rounded-md text-xs font-medium transition-colors"
                               >
                                 <Send className="w-3.5 h-3.5" />
                                 <span>رابط دفع</span>
@@ -844,42 +679,41 @@ export default function Invoices() {
         )}
       </div>
 
-      {/* نافذة إنشاء فاتورة جديدة (مع مريض جديد + موعد دكتور + دفع فوري) */}
+      {/* نافذة إنشاء فاتورة جديدة */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-2xl w-full rounded-2xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-blue-500" />
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#172033] border border-[#243047] max-w-2xl w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-[#243047] mb-6">
+              <h2 className="text-[17px] font-semibold text-[#F8FAFC] flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-[#0D9488]" />
                 إنشاء فاتورة علاج
               </h2>
               <button
                 onClick={() => setIsCreateModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-[#64748B] hover:text-[#F8FAFC] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSubmitInvoice} className="space-y-6">
-              {/* المريض + زرار مريض جديد */}
+              {/* المريض */}
               <div className="relative">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label className="text-[13px] font-medium text-[#CBD5E1]">
                     المريض *
                   </label>
                   <button
                     type="button"
                     onClick={() => setIsNewPatientModalOpen(true)}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium"
+                    className="text-xs text-[#0D9488] hover:text-[#0F766E] flex items-center gap-1 font-medium"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
                     <span>+ مريض جديد</span>
                   </button>
                 </div>
-
                 <div className="relative">
-                  <Search className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                  <Search className="w-4 h-4 text-[#64748B] absolute right-3.5 top-3.5" />
                   <input
                     type="text"
                     required
@@ -891,19 +725,18 @@ export default function Invoices() {
                       setInvoiceForm({ ...invoiceForm, patient_id: "" });
                       setIsPatientDropdownOpen(true);
                     }}
-                    className={`w-full bg-slate-950 border ${
+                    className={`w-full bg-[#111827] border ${
                       invoiceForm.patient_id
-                        ? "border-emerald-500/50"
-                        : "border-slate-700"
-                    } rounded-xl pr-10 pl-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500`}
+                        ? "border-[#10B981]/50"
+                        : "border-[#243047]"
+                    } rounded-md pr-10 pl-4 py-2 text-[13px] text-[#F8FAFC] placeholder-[#64748B] focus:outline-none focus:border-[#0D9488]`}
                   />
                   {invoiceForm.patient_id && (
-                    <Check className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
+                    <Check className="w-4 h-4 text-[#34D399] absolute left-3.5 top-3.5" />
                   )}
                 </div>
-
                 {isPatientDropdownOpen && (
-                  <div className="absolute z-20 w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-xl shadow-2xl max-h-40 overflow-y-auto divide-y divide-slate-800">
+                  <div className="absolute z-20 w-full mt-1 border border-[#243047] bg-[#111827] rounded-md shadow-lg max-h-40 overflow-y-auto divide-y divide-[#243047]">
                     {filteredPatients.map((p) => (
                       <div
                         key={p.id}
@@ -916,11 +749,13 @@ export default function Invoices() {
                           setPatientInput(p.name);
                           setIsPatientDropdownOpen(false);
                         }}
-                        className="p-3 hover:bg-slate-800 cursor-pointer flex justify-between text-sm"
+                        className="p-3 hover:bg-[#172033] cursor-pointer flex justify-between text-[13px]"
                       >
-                        <span className="text-white font-medium">{p.name}</span>
+                        <span className="text-[#F8FAFC] font-medium">
+                          {p.name}
+                        </span>
                         <span
-                          className="text-xs text-slate-400 font-mono"
+                          className="text-xs text-[#94A3B8] font-mono"
                           dir="ltr"
                         >
                           {p.phone_number}
@@ -931,10 +766,10 @@ export default function Invoices() {
                 )}
               </div>
 
-              {/* اختيار الدكتور وتاريخ الكشف جنب بعض */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* الطبيب وتاريخ الكشف */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                     الطبيب المعالج *
                   </label>
                   <select
@@ -946,9 +781,9 @@ export default function Invoices() {
                         doctor_id: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[#F8FAFC] text-[13px] focus:outline-none focus:border-[#0D9488]"
                   >
-                    <option value="">-- اختر الطبيب المعالج --</option>
+                    <option value="">-- اختر الطبيب --</option>
                     {doctors.map((d) => (
                       <option key={d.id} value={d.id}>
                         د. {d.name}
@@ -956,9 +791,8 @@ export default function Invoices() {
                     ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                     تاريخ ووقت الكشف *
                   </label>
                   <input
@@ -971,16 +805,15 @@ export default function Invoices() {
                         appointment_date: e.target.value,
                       })
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                    className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[#F8FAFC] font-mono text-[13px] focus:outline-none focus:border-[#0D9488]"
                   />
                 </div>
               </div>
 
-              {/* ربط بميعاد مسبق (لو المريض عنده حجز قديم) */}
               {invoiceForm.patient_id && patientAppointments.length > 0 && (
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">
-                    ربط بميعاد حجز سابق للمريض (اختياري)
+                  <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
+                    ربط بميعاد حجز سابق (اختياري)
                   </label>
                   <select
                     value={invoiceForm.appointment_id}
@@ -992,13 +825,12 @@ export default function Invoices() {
                       setInvoiceForm({
                         ...invoiceForm,
                         appointment_id: apptId,
-                        // لو اختار ميعاد مسبق، يحدد دكتوره أوتوماتيك!
                         doctor_id: selectedApt
                           ? selectedApt.doctor_id
                           : invoiceForm.doctor_id,
                       });
                     }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-slate-300 focus:outline-none focus:border-blue-500 text-xs"
+                    className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[#F8FAFC] focus:outline-none focus:border-[#0D9488] text-[13px]"
                   >
                     <option value="">
                       -- كشف فوري (سيتم إنشاء ميعاد تلقائياً) --
@@ -1019,16 +851,16 @@ export default function Invoices() {
                 </div>
               )}
 
-              {/* بنود الفاتورة (الافتراضي: كشف أسنان أولي بـ 200 ج) */}
+              {/* بنود الفاتورة */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label className="text-[13px] font-medium text-[#CBD5E1]">
                     بنود العلاج والعمليات *
                   </label>
                   <button
                     type="button"
                     onClick={handleAddItem}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium"
+                    className="text-xs text-[#0D9488] hover:text-[#0F766E] flex items-center gap-1 font-medium"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>+ إضافة بند آخر</span>
@@ -1038,30 +870,27 @@ export default function Invoices() {
                 {invoiceForm.items.map((item, idx) => (
                   <div
                     key={item._id}
-                    className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3"
+                    className="p-3 bg-[#080D18] border border-[#243047] rounded-md space-y-3"
                   >
                     {procedureCodes.length > 0 && (
-                      <div>
-                        <select
-                          onChange={(e) =>
-                            handleSelectProcedure(idx, e.target.value)
-                          }
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="">
-                            -- اختار إجراء جاهز من قائمة الأسعار --
+                      <select
+                        onChange={(e) =>
+                          handleSelectProcedure(idx, e.target.value)
+                        }
+                        className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#CBD5E1] focus:outline-none focus:border-[#0D9488]"
+                      >
+                        <option value="">
+                          -- اختار إجراء جاهز من قائمة الأسعار --
+                        </option>
+                        {procedureCodes.map((code) => (
+                          <option key={code.id} value={code.id}>
+                            {code.code} - {code.description} (
+                            {parseFloat(code.default_price)} ج.م)
                           </option>
-                          {procedureCodes.map((code) => (
-                            <option key={code.id} value={code.id}>
-                              {code.code} - {code.description} (
-                              {parseFloat(code.default_price)} ج.م)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                        ))}
+                      </select>
                     )}
-
-                    <div className="flex gap-3 items-center">
+                    <div className="flex gap-2 items-center">
                       <input
                         type="text"
                         required
@@ -1070,7 +899,7 @@ export default function Invoices() {
                         onChange={(e) =>
                           handleItemChange(idx, "description", e.target.value)
                         }
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                        className="flex-1 bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                       />
                       <input
                         type="number"
@@ -1080,7 +909,7 @@ export default function Invoices() {
                         onChange={(e) =>
                           handleItemChange(idx, "quantity", e.target.value)
                         }
-                        className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm text-center text-white focus:outline-none focus:border-blue-500"
+                        className="w-16 bg-[#111827] border border-[#243047] rounded-md px-2 py-2 text-[13px] text-center text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                       />
                       <input
                         type="number"
@@ -1092,13 +921,13 @@ export default function Invoices() {
                         onChange={(e) =>
                           handleItemChange(idx, "unit_price", e.target.value)
                         }
-                        className="w-28 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-blue-500"
+                        className="w-24 bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] font-mono text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                       />
                       {invoiceForm.items.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveItem(idx)}
-                          className="p-2 text-slate-500 hover:text-red-400"
+                          className="p-1.5 text-[#64748B] hover:text-[#F87171]"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1108,33 +937,32 @@ export default function Invoices() {
                 ))}
               </div>
 
-              {/* قسم الدفع الفوري (تحصيل لحظي مع إنشاء الفاتورة) */}
-              <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl space-y-3">
+              {/* قسم الدفع الفوري */}
+              <div className="p-4 bg-[#10B981]/5 border border-[#10B981]/20 rounded-md space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-emerald-400 flex items-center gap-1.5">
+                  <span className="text-[13px] font-medium text-[#34D399] flex items-center gap-1.5">
                     <Wallet className="w-4 h-4" />
                     تحصيل فوري الآن (اختياري)
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={() =>
                       setInvoiceForm({
                         ...invoiceForm,
                         initial_payment: {
                           ...invoiceForm.initial_payment,
                           amount: calculatedTotal,
                         },
-                      });
-                    }}
-                    className="text-xs text-emerald-400 hover:underline"
+                      })
+                    }
+                    className="text-xs text-[#34D399] hover:underline"
                   >
                     دفع المبلغ كاملاً ({calculatedTotal} ج.م)
                   </button>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">
+                    <label className="block text-xs text-[#94A3B8] mb-1">
                       المبلغ المدفوع الآن
                     </label>
                     <input
@@ -1153,12 +981,11 @@ export default function Invoices() {
                           },
                         })
                       }
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] font-mono text-[#F8FAFC] focus:outline-none focus:border-[#10B981]"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">
+                    <label className="block text-xs text-[#94A3B8] mb-1">
                       طريقة الدفع
                     </label>
                     <select
@@ -1172,7 +999,7 @@ export default function Invoices() {
                           },
                         })
                       }
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#10B981]"
                     >
                       <option value="cash">نقداً (كاش 💵)</option>
                       <option value="card">بطاقة بنكية (فيزا 💳)</option>
@@ -1186,27 +1013,27 @@ export default function Invoices() {
               </div>
 
               {/* شريط الإجمالي النهائي */}
-              <div className="flex justify-between items-center p-4 bg-slate-800/60 rounded-xl border border-slate-700">
-                <span className="font-medium text-slate-300">
+              <div className="flex justify-between items-center p-4 bg-[#080D18] rounded-md border border-[#243047]">
+                <span className="font-medium text-[#CBD5E1] text-[13px]">
                   إجمالي الفاتورة:
                 </span>
-                <span className="text-xl font-bold font-mono text-emerald-400">
+                <span className="text-[17px] font-semibold font-mono text-[#F8FAFC]">
                   {calculatedTotal.toLocaleString("en-US")} ج.م
                 </span>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-800">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="flex-1 py-2.5 border border-slate-700 text-slate-300 rounded-xl text-sm"
+                  className="flex-1 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={createInvoiceMutation.isPending}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-sm font-medium"
+                  className="flex-1 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] py-2.5 rounded-md text-[13px] font-medium transition-colors"
                 >
                   {createInvoiceMutation.isPending
                     ? "جاري الإصدار..."
@@ -1218,57 +1045,57 @@ export default function Invoices() {
         </div>
       )}
 
-      {/* نافذة تفاصيل الفاتورة الشاملة (مع سجل المدفوعات والدكتور) */}
+      {/* نافذة تفاصيل الفاتورة الشاملة */}
       {isDetailsModalOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-xl w-full rounded-2xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-400" />
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#172033] border border-[#243047] max-w-xl w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#243047] mb-4">
+              <h2 className="text-[17px] font-semibold text-[#F8FAFC] flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#0D9488]" />
                 تفاصيل الفاتورة - {selectedInvoice.patient_name}
               </h2>
               <button
                 onClick={() => setIsDetailsModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-[#64748B] hover:text-[#F8FAFC] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {isDetailsLoading ? (
-              <div className="p-8 text-center text-slate-400 flex flex-col items-center gap-2">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                <span>جاري تحميل بيانات الفاتورة وسجل الدفع...</span>
+              <div className="p-8 text-center text-[#94A3B8] flex flex-col items-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-[#0D9488]" />
+                <span className="text-[13px]">
+                  جاري تحميل بيانات الفاتورة وسجل الدفع...
+                </span>
               </div>
             ) : (
               <div className="space-y-5">
-                {/* كارت معلومات المريض والدكتور */}
-                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-3 text-xs">
+                <div className="p-4 bg-[#080D18] rounded-md border border-[#243047] grid grid-cols-2 gap-3 text-[13px]">
                   <div>
-                    <span className="text-slate-500 block mb-0.5">المريض</span>
-                    <span className="text-white font-medium text-sm">
+                    <span className="text-[#64748B] block mb-0.5">المريض</span>
+                    <span className="text-[#F8FAFC] font-medium">
                       {invoiceDetails?.patient_name}
                     </span>
                     <span
-                      className="text-slate-400 block font-mono mt-0.5"
+                      className="text-[#94A3B8] block font-mono mt-0.5"
                       dir="ltr"
                     >
                       {invoiceDetails?.patient_phone}
                     </span>
                   </div>
-
                   <div>
-                    <span className="text-slate-500 block mb-0.5">
+                    <span className="text-[#64748B] block mb-0.5">
                       الطبيب المعالج
                     </span>
-                    <span className="text-white font-medium text-sm">
+                    <span className="text-[#F8FAFC] font-medium">
                       {invoiceDetails?.doctor_name
                         ? `د. ${invoiceDetails.doctor_name}`
                         : "كشف عام"}
                     </span>
                     {invoiceDetails?.appointment_date && (
                       <span
-                        className="text-slate-400 block font-mono mt-0.5"
+                        className="text-[#94A3B8] block font-mono mt-0.5"
                         dir="ltr"
                       >
                         {new Date(
@@ -1279,32 +1106,33 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                {/* بنود الفاتورة */}
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-400 mb-2">
+                  <h4 className="text-xs font-medium text-[#CBD5E1] mb-2">
                     بنود العلاج والعمليات
                   </h4>
-                  <div className="border border-slate-800 rounded-xl overflow-hidden">
-                    <table className="w-full text-right text-xs">
-                      <thead className="bg-slate-800 text-slate-400">
+                  <div className="border border-[#243047] rounded-md overflow-hidden">
+                    <table className="w-full text-right text-[13px]">
+                      <thead className="bg-[#111827] text-[#94A3B8] border-b border-[#243047]">
                         <tr>
-                          <th className="p-2.5">البند</th>
-                          <th className="p-2.5 text-center">الكمية</th>
-                          <th className="p-2.5">السعر</th>
-                          <th className="p-2.5 text-left">الإجمالي</th>
+                          <th className="p-2.5 font-medium">البند</th>
+                          <th className="p-2.5 text-center font-medium">
+                            الكمية
+                          </th>
+                          <th className="p-2.5 font-medium">السعر</th>
+                          <th className="p-2.5 text-left font-medium">
+                            الإجمالي
+                          </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                      <tbody className="divide-y divide-[#243047] text-[#CBD5E1]">
                         {invoiceDetails?.items?.map((it) => (
-                          <tr key={it.id}>
-                            <td className="p-2.5 font-medium text-white">
-                              {it.description}
-                            </td>
+                          <tr key={it.id} className="bg-[#080D18]">
+                            <td className="p-2.5">{it.description}</td>
                             <td className="p-2.5 text-center">{it.quantity}</td>
                             <td className="p-2.5 font-mono">
                               {parseFloat(it.unit_price)}
                             </td>
-                            <td className="p-2.5 text-left font-mono font-bold text-emerald-400">
+                            <td className="p-2.5 text-left font-mono font-medium text-[#F8FAFC]">
                               {parseFloat(it.total_price)} ج.م
                             </td>
                           </tr>
@@ -1314,59 +1142,66 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                {/* سجل المدفوعات (إيه وإمتى وطريقة الدفع) */}
                 <div>
-                  <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
-                    <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                  <h4 className="text-xs font-medium text-[#CBD5E1] mb-2 flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5 text-[#0D9488]" />
                     سجل الدفعات والتحصيل
                   </h4>
                   {invoiceDetails?.payments?.length === 0 ? (
-                    <div className="p-3 bg-slate-950 rounded-xl text-center text-xs text-slate-500 border border-slate-800">
+                    <div className="p-3 bg-[#080D18] rounded-md text-center text-xs text-[#64748B] border border-[#243047]">
                       لم يتم سداد أي دفعات لهذه الفاتورة حتى الآن.
                     </div>
                   ) : (
-                    <div className="border border-slate-800 rounded-xl overflow-hidden">
-                      <table className="w-full text-right text-xs">
-                        <thead className="bg-slate-800 text-slate-400">
+                    <div className="border border-[#243047] rounded-md overflow-hidden">
+                      <table className="w-full text-right text-[12px]">
+                        <thead className="bg-[#111827] text-[#94A3B8] border-b border-[#243047]">
                           <tr>
-                            <th className="py-2 px-3 text-right">المبلغ</th>
-                            <th className="py-2 px-3 text-right">
+                            <th className="py-2 px-3 text-right font-medium">
+                              المبلغ
+                            </th>
+                            <th className="py-2 px-3 text-right font-medium">
                               طريقة الدفع
                             </th>
-                            <th className="py-2 px-3 text-center">الحالة</th>
-                            <th className="py-2 px-3 text-right">
-                              تاريخ ووقت السداد
+                            <th className="py-2 px-3 text-center font-medium">
+                              الحالة
                             </th>
-                            <th className="py-2 px-3 text-right">ملاحظات</th>
+                            <th className="py-2 px-3 text-right font-medium">
+                              التاريخ
+                            </th>
+                            <th className="py-2 px-3 text-right font-medium">
+                              ملاحظات
+                            </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 text-slate-300">
+                        <tbody className="divide-y divide-[#243047] text-[#CBD5E1]">
                           {invoiceDetails?.payments?.map((pm) => (
-                            <tr key={pm.id}>
-                              <td className="py-2 px-3 font-mono font-bold text-emerald-400">
+                            <tr key={pm.id} className="bg-[#080D18]">
+                              <td
+                                className={`py-2 px-3 font-mono font-semibold ${
+                                  pm.status === "paid"
+                                    ? "text-[#34D399]"
+                                    : "text-[#F8FAFC]"
+                                }`}
+                              >
                                 {parseFloat(pm.amount).toLocaleString("en-US")}{" "}
                                 ج.م
                               </td>
-
-                              <td className="py-2 px-3 text-slate-300">
+                              <td className="py-2 px-3 text-[#94A3B8]">
                                 {paymentMethodConfig[pm.payment_method] ||
                                   pm.payment_method}
                               </td>
-
                               <td className="py-2 px-3 text-center">
                                 <PaymentStatusBadge status={pm.status} />
                               </td>
-
                               <td
-                                className="py-2 px-3 text-xs text-slate-400 font-mono"
+                                className="py-2 px-3 text-[#64748B] font-mono"
                                 dir="ltr"
                               >
                                 {new Date(
                                   pm.paid_at || pm.created_at
                                 ).toLocaleString("ar-EG")}
                               </td>
-
-                              <td className="py-2 px-3 text-xs text-slate-400">
+                              <td className="py-2 px-3 text-[#64748B] text-[11px]">
                                 {pm.notes || "-"}
                               </td>
                             </tr>
@@ -1377,18 +1212,17 @@ export default function Invoices() {
                   )}
                 </div>
 
-                {/* ملخص الحساب الكلي في أسفل الفاتورة */}
-                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-sm">
-                  <div className="flex justify-between text-slate-400">
+                <div className="p-4 bg-[#080D18] rounded-md border border-[#243047] space-y-2 text-[13px]">
+                  <div className="flex justify-between text-[#94A3B8]">
                     <span>إجمالي الفاتورة:</span>
-                    <span className="font-mono text-white">
+                    <span className="font-mono text-[#F8FAFC]">
                       {parseFloat(
                         invoiceDetails?.total_amount || 0
                       ).toLocaleString("en-US")}{" "}
                       ج.م
                     </span>
                   </div>
-                  <div className="flex justify-between text-emerald-400">
+                  <div className="flex justify-between text-[#34D399]">
                     <span>إجمالي المدفوع:</span>
                     <span className="font-mono">
                       {parseFloat(
@@ -1397,9 +1231,9 @@ export default function Invoices() {
                       ج.م
                     </span>
                   </div>
-                  <div className="flex justify-between text-red-400 font-bold pt-2 border-t border-slate-800">
+                  <div className="flex justify-between text-[#F87171] font-semibold pt-2 border-t border-[#243047]">
                     <span>المتبقي على المريض:</span>
-                    <span className="font-mono text-base">
+                    <span className="font-mono text-sm">
                       {parseFloat(
                         invoiceDetails?.remaining_amount || 0
                       ).toLocaleString("en-US")}{" "}
@@ -1408,35 +1242,30 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                {/* أزرار الإجراءات أسفل الفاتورة */}
-                <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-800">
-                  {/* 1. زر طباعة الفاتورة */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
                   <button
                     type="button"
                     onClick={handlePrintInvoice}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-medium transition-colors shadow-lg shadow-blue-600/20"
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] rounded-md text-[13px] font-medium transition-colors"
                   >
                     <Printer className="w-4 h-4" />
                     <span>طباعة الفاتورة</span>
                   </button>
 
-                  {/* 2. زر أرشفة الفاتورة (للأدمن فقط وللفواتير النشطة) */}
                   {!showArchived && user?.role === "ClinicAdmin" && (
                     <button
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-xs font-medium transition-colors"
+                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#EF4444]/10 hover:bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/20 rounded-md text-[13px] font-medium transition-colors"
                     >
                       <Archive className="w-4 h-4" />
                       <span>أرشفة</span>
                     </button>
                   )}
-
-                  {/* 3. زر إغلاق */}
                   <button
                     type="button"
                     onClick={() => setIsDetailsModalOpen(false)}
-                    className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
+                    className="px-5 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] font-medium transition-colors"
                   >
                     إغلاق
                   </button>
@@ -1449,25 +1278,25 @@ export default function Invoices() {
 
       {/* نافذة تحصيل الدفع */}
       {isPaymentModalOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-emerald-400" />
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative">
+            <div className="flex items-center justify-between pb-3 border-b border-[#243047] mb-4">
+              <h2 className="text-[17px] font-semibold text-[#F8FAFC] flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-[#34D399]" />
                 تحصيل دفعة - {selectedInvoice.patient_name}
               </h2>
               <button
                 onClick={() => setIsPaymentModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-[#64748B] hover:text-[#F8FAFC] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSubmitPayment} className="space-y-4">
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center text-sm">
-                <span className="text-slate-400">المتبقي على الفاتورة:</span>
-                <span className="font-bold font-mono text-red-400">
+              <div className="p-3 bg-[#080D18] border border-[#243047] rounded-md flex justify-between items-center text-[13px]">
+                <span className="text-[#94A3B8]">المتبقي على الفاتورة:</span>
+                <span className="font-semibold font-mono text-[#F87171]">
                   {parseFloat(
                     selectedInvoice.remaining_amount ||
                       selectedInvoice.total_amount
@@ -1477,7 +1306,7 @@ export default function Invoices() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                   المبلغ المطلوب سداده *
                 </label>
                 <input
@@ -1493,12 +1322,12 @@ export default function Invoices() {
                   onChange={(e) =>
                     setPaymentForm({ ...paymentForm, amount: e.target.value })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-lg focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-4 py-2.5 text-[#F8FAFC] font-mono text-base focus:outline-none focus:border-[#0D9488]"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                   طريقة الدفع *
                 </label>
                 <select
@@ -1509,7 +1338,7 @@ export default function Invoices() {
                       payment_method: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-4 py-2.5 text-[#F8FAFC] text-[13px] focus:outline-none focus:border-[#0D9488]"
                 >
                   <option value="cash">نقداً (كاش 💵)</option>
                   <option value="card">بطاقة بنكية (فيزا 💳)</option>
@@ -1519,7 +1348,7 @@ export default function Invoices() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                   ملاحظات التحصيل
                 </label>
                 <input
@@ -1529,22 +1358,22 @@ export default function Invoices() {
                   onChange={(e) =>
                     setPaymentForm({ ...paymentForm, notes: e.target.value })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-4 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                 />
               </div>
 
-              <div className="flex gap-3 pt-3 border-t border-slate-800">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
-                  className="flex-1 py-2.5 border border-slate-700 text-slate-400 rounded-xl text-sm"
+                  className="flex-1 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={recordPaymentMutation.isPending}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-medium"
+                  className="flex-1 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] py-2.5 rounded-md text-[13px] font-medium transition-colors"
                 >
                   {recordPaymentMutation.isPending
                     ? "جاري التحصيل..."
@@ -1556,31 +1385,33 @@ export default function Invoices() {
         </div>
       )}
 
+      {/* نافذة الدفع الإلكتروني */}
       {isOnlineModalOpen && onlineSelectedInvoice && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl relative">
-            {/* رأس المودال */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-purple-400" />
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative">
+            <div className="flex items-center justify-between pb-3 border-b border-[#243047] mb-4">
+              <h2 className="text-[17px] font-semibold text-[#F8FAFC] flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-[#0D9488]" />
                 <span>دفع إلكتروني - {onlineSelectedInvoice.patient_name}</span>
               </h2>
               <button
                 onClick={() => setIsOnlineModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-[#64748B] hover:text-[#F8FAFC] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* الحالة 1: نموذج اختيار المبلغ وتوليد الرابط */}
             {!generatedLinkData ? (
               <form onSubmit={handleGenerateOnlineLink} className="space-y-4">
-                {/* المتبقي ورقم الهاتف */}
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-400">إجمالي المتبقي:</span>
-                    <span className="font-bold font-mono text-red-400 text-base">
+                <div className="p-3 rounded-md bg-[#F59E0B]/10 border border-[#F59E0B]/20 text-[#FBBF24] text-[12px] text-center">
+                  ⚠️ إنشاء رابط دفع جديد سيُلغي أي رابط دفع إلكتروني سابق معلق.
+                </div>
+
+                <div className="bg-[#080D18] border border-[#243047] rounded-md p-3 space-y-2">
+                  <div className="flex justify-between items-center text-[13px]">
+                    <span className="text-[#94A3B8]">إجمالي المتبقي:</span>
+                    <span className="font-semibold font-mono text-[#F87171]">
                       {(
                         parseFloat(onlineSelectedInvoice.remaining_amount) ||
                         parseFloat(onlineSelectedInvoice.total_amount)
@@ -1589,46 +1420,41 @@ export default function Invoices() {
                     </span>
                   </div>
                   {onlineSelectedInvoice.patient_phone && (
-                    <div className="flex justify-between items-center text-xs pt-2 border-t border-slate-800/80">
-                      <span className="text-slate-400 flex items-center gap-1">
-                        <Smartphone className="w-3.5 h-3.5 text-slate-500" />
-                        رقم المريض:
+                    <div className="flex justify-between items-center text-[12px] pt-2 border-t border-[#243047]">
+                      <span className="text-[#64748B] flex items-center gap-1">
+                        <Smartphone className="w-3.5 h-3.5" /> رقم المريض:
                       </span>
-                      <span className="font-mono text-slate-300 dir-ltr">
+                      <span className="font-mono text-[#CBD5E1]" dir="ltr">
                         {onlineSelectedInvoice.patient_phone}
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* خيارات تحديد المبلغ */}
                 <div className="space-y-2.5">
-                  <label className="block text-xs font-medium text-slate-300">
+                  <label className="block text-[12px] font-medium text-[#CBD5E1]">
                     قيمة الدفعة المطلوبة:
                   </label>
-
-                  {/* الخيار 1: كامل المتبقي */}
                   <label
                     onClick={() => setPaymentType("full")}
-                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                    className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${
                       paymentType === "full"
-                        ? "bg-purple-500/10 border-purple-500/40 text-purple-200"
-                        : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                        ? "bg-[#042F2E] border-[#0D9488]/40 text-[#0D9488]"
+                        : "bg-[#111827] border-[#243047] text-[#94A3B8] hover:border-[#0D9488]/20"
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
                         type="radio"
-                        name="paymentType"
                         checked={paymentType === "full"}
-                        onChange={() => setPaymentType("full")}
-                        className="accent-purple-500"
+                        readOnly
+                        className="accent-[#0D9488]"
                       />
-                      <span className="text-sm font-medium">
+                      <span className="text-[13px] font-medium">
                         المتبقي بالكامل
                       </span>
                     </div>
-                    <span className="font-mono font-bold text-sm">
+                    <span className="font-mono font-semibold text-[13px]">
                       {(
                         parseFloat(onlineSelectedInvoice.remaining_amount) ||
                         parseFloat(onlineSelectedInvoice.total_amount)
@@ -1637,12 +1463,11 @@ export default function Invoices() {
                     </span>
                   </label>
 
-                  {/* الخيار 2: مبلغ مخصص */}
                   <div
-                    className={`p-3 rounded-xl border transition-all ${
+                    className={`p-3 rounded-md border transition-colors ${
                       paymentType === "custom"
-                        ? "bg-purple-500/10 border-purple-500/40 text-purple-200"
-                        : "bg-slate-950 border-slate-800 text-slate-400"
+                        ? "bg-[#042F2E] border-[#0D9488]/40 text-[#0D9488]"
+                        : "bg-[#111827] border-[#243047] text-[#94A3B8]"
                     }`}
                   >
                     <label
@@ -1651,16 +1476,14 @@ export default function Invoices() {
                     >
                       <input
                         type="radio"
-                        name="paymentType"
                         checked={paymentType === "custom"}
-                        onChange={() => setPaymentType("custom")}
-                        className="accent-purple-500"
+                        readOnly
+                        className="accent-[#0D9488]"
                       />
-                      <span className="text-sm font-medium">
+                      <span className="text-[13px] font-medium">
                         مبلغ مخصص (عربون / دفعة)
                       </span>
                     </label>
-
                     {paymentType === "custom" && (
                       <div className="relative mt-2">
                         <input
@@ -1677,32 +1500,28 @@ export default function Invoices() {
                           onChange={(e) => setCustomAmount(e.target.value)}
                           required
                           autoFocus
-                          className="w-full bg-slate-900 border border-purple-500/30 rounded-lg px-3 py-2 text-white font-mono text-base focus:outline-none focus:border-purple-500"
+                          className="w-full bg-[#080D18] border border-[#0D9488]/30 rounded-md px-3 py-2 text-[#F8FAFC] font-mono text-[13px] focus:outline-none focus:border-[#0D9488]"
                         />
-                        <span className="absolute left-3 top-2.5 text-xs text-slate-400">
-                          ج.م
-                        </span>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* أزرار الإجراء */}
-                <div className="flex gap-3 pt-3 border-t border-slate-800">
+                <div className="flex gap-3 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsOnlineModalOpen(false)}
-                    className="flex-1 py-2.5 border border-slate-700 hover:bg-slate-800 text-slate-400 rounded-xl text-sm transition-colors"
+                    className="flex-1 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] transition-colors"
                   >
                     إلغاء
                   </button>
                   <button
                     type="submit"
                     disabled={createOnlinePaymentMutation.isPending}
-                    className="flex-1 bg-purple-600 hover:bg-purple-500 text-white py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] py-2.5 rounded-md text-[13px] font-medium transition-colors flex items-center justify-center gap-2"
                   >
                     {createOnlinePaymentMutation.isPending ? (
-                      <span>جاري توليد الرابط...</span>
+                      <span>جاري التوليد...</span>
                     ) : (
                       <>
                         <Send className="w-4 h-4" />
@@ -1713,48 +1532,50 @@ export default function Invoices() {
                 </div>
               </form>
             ) : (
-              /* الحالة 2: شاشة النجاح والأزرار التفاعلية بعد التوليد */
               <div className="space-y-4 py-2">
+                {generatedLinkData.is_mock && (
+                  <div className="mb-3 p-3 rounded-md bg-[#F59E0B]/10 border border-[#F59E0B]/20 text-[#FBBF24] text-xs text-center">
+                    🧪 رابط دفع تجريبي (Mock Mode) — لن يتم تنفيذ عملية دفع
+                    حقيقية.
+                  </div>
+                )}
                 <div className="text-center space-y-1">
-                  <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-2 text-xl">
+                  <div className="w-12 h-12 bg-[#10B981]/10 border border-[#10B981]/20 text-[#34D399] rounded-full flex items-center justify-center mx-auto mb-2 text-xl">
                     ✓
                   </div>
-                  <h3 className="text-base font-bold text-white">
+                  <h3 className="text-[15px] font-semibold text-[#F8FAFC]">
                     تم إنشاء رابط الدفع بنجاح
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[13px] text-[#94A3B8]">
                     المبلغ المطلوب:{" "}
-                    <span className="font-bold text-white font-mono">
+                    <span className="font-semibold text-[#F8FAFC] font-mono">
                       {generatedLinkData.amount} ج.م
                     </span>
                   </p>
                 </div>
 
                 <div className="space-y-2.5 pt-2">
-                  {/* زرار الواتساب الأخضر المباشر */}
                   {generatedLinkData.whatsapp_url && (
                     <a
                       href={generatedLinkData.whatsapp_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-xl text-sm transition-all shadow-lg shadow-emerald-950/40"
+                      className="w-full flex items-center justify-center gap-2 bg-[#10B981] hover:bg-emerald-500 text-white font-medium py-2.5 px-4 rounded-md text-[13px] transition-colors"
                     >
                       <span className="text-base">📲</span>
                       <span>إرسال عبر واتساب العيادة</span>
                     </a>
                   )}
-
                   <div className="grid grid-cols-2 gap-2">
-                    {/* زرار نسخ الرابط */}
                     <button
                       type="button"
                       onClick={handleCopyLink}
-                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-slate-600 text-slate-200 rounded-xl text-xs font-medium transition-colors"
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#111827] border border-[#243047] hover:border-[#64748B] text-[#CBD5E1] rounded-md text-xs font-medium transition-colors"
                     >
                       {isCopied ? (
                         <>
-                          <span className="text-emerald-400">✓</span>
-                          <span className="text-emerald-400">تم النسخ!</span>
+                          <span className="text-[#34D399]">✓</span>
+                          <span className="text-[#34D399]">تم النسخ!</span>
                         </>
                       ) : (
                         <>
@@ -1763,13 +1584,11 @@ export default function Invoices() {
                         </>
                       )}
                     </button>
-
-                    {/* زرار فتح صفحة الدفع مباشرة */}
                     <a
                       href={generatedLinkData.payment_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-slate-600 text-purple-300 rounded-xl text-xs font-medium transition-colors"
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#111827] border border-[#243047] hover:border-[#0D9488]/50 text-[#0D9488] rounded-md text-xs font-medium transition-colors"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       <span>فتح الدفع ↗</span>
@@ -1777,11 +1596,11 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-800">
+                <div className="pt-3 border-t border-[#243047]">
                   <button
                     type="button"
                     onClick={() => setIsOnlineModalOpen(false)}
-                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition-colors"
+                    className="w-full py-2.5 bg-transparent hover:bg-[#111827] text-[#94A3B8] border border-[#243047] rounded-md text-xs transition-colors font-medium"
                   >
                     إغلاق
                   </button>
@@ -1794,10 +1613,10 @@ export default function Invoices() {
 
       {/* نافذة إضافة مريض سريع */}
       {isNewPatientModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-          <div className="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-2xl p-6 shadow-2xl relative">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-blue-500" />
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-[#172033] border border-[#243047] max-w-sm w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative">
+            <h3 className="text-[17px] font-semibold text-[#F8FAFC] mb-4 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-[#0D9488]" />
               إضافة مريض سريعاً
             </h3>
             <form
@@ -1808,13 +1627,12 @@ export default function Invoices() {
               className="space-y-4"
             >
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-[13px] text-[#CBD5E1] mb-1.5">
                   اسم المريض *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="محمد علي"
                   value={newPatientData.name}
                   onChange={(e) =>
                     setNewPatientData({
@@ -1822,17 +1640,16 @@ export default function Invoices() {
                       name: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-[13px] text-[#CBD5E1] mb-1.5">
                   رقم الهاتف *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="01012345678"
                   value={newPatientData.phone_number}
                   onChange={(e) =>
                     setNewPatientData({
@@ -1840,11 +1657,11 @@ export default function Invoices() {
                       phone_number: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
+                <label className="block text-[13px] text-[#CBD5E1] mb-1.5">
                   النوع
                 </label>
                 <select
@@ -1855,7 +1672,7 @@ export default function Invoices() {
                       gender: e.target.value,
                     })
                   }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[13px] text-[#F8FAFC] focus:outline-none focus:border-[#0D9488]"
                 >
                   <option value="Male">ذكر</option>
                   <option value="Female">أنثى</option>
@@ -1865,14 +1682,14 @@ export default function Invoices() {
                 <button
                   type="button"
                   onClick={() => setIsNewPatientModalOpen(false)}
-                  className="flex-1 py-2 border border-slate-700 text-slate-400 rounded-xl text-xs"
+                  className="flex-1 py-2 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-xs transition-colors"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={createPatientMutation.isPending}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl text-xs font-medium"
+                  className="flex-1 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] py-2 rounded-md text-xs font-medium transition-colors"
                 >
                   حفظ واختيار
                 </button>
@@ -1881,41 +1698,40 @@ export default function Invoices() {
           </div>
         </div>
       )}
-      {/* نافذة تأكيد أرشفة الفاتورة (لا يمكن التراجع عنها) */}
+
+      {/* نافذة تأكيد أرشفة الفاتورة */}
       {isArchiveConfirmOpen && selectedInvoice && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-          <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-red-400">
-              <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-[#EF4444]/10 rounded-md border border-[#EF4444]/20 text-[#F87171]">
                 <AlertTriangle className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-[17px] font-semibold text-[#F8FAFC]">
                   تأكيد أرشفة الفاتورة
                 </h3>
-                <p className="text-xs text-red-400 font-semibold">
-                  تنبيه: هذا الإجراء نهائي ولا يمكن التراجع عنه مطلقاً
+                <p className="text-[12px] text-[#F87171] font-medium">
+                  تنبيه: هذا الإجراء نهائي ولا يمكن التراجع عنه.
                 </p>
               </div>
             </div>
-
-            <p className="text-sm text-slate-300 leading-relaxed">
+            <p className="text-[13px] text-[#94A3B8] leading-relaxed">
               هل أنت متأكد من أرشفة الفاتورة رقم{" "}
-              <span className="font-bold font-mono text-white">
+              <span className="font-semibold font-mono text-[#F8FAFC]">
                 #{selectedInvoice.id}
               </span>{" "}
               الخاصة بالمريض{" "}
-              <span className="font-bold text-white">
+              <span className="font-semibold text-[#F8FAFC]">
                 "{selectedInvoice.patient_name}"
               </span>
               ؟
             </p>
-
-            <div className="flex gap-3 pt-3 border-t border-slate-800">
+            <div className="flex gap-3 pt-3 border-t border-[#243047]">
               <button
                 type="button"
                 onClick={() => setIsArchiveConfirmOpen(false)}
-                className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs"
+                className="flex-1 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] transition-colors"
               >
                 إلغاء
               </button>
@@ -1925,7 +1741,7 @@ export default function Invoices() {
                 onClick={() =>
                   archiveInvoiceMutation.mutate(selectedInvoice.id)
                 }
-                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-[#EF4444] hover:bg-red-600 text-white py-2.5 rounded-md text-[13px] font-medium transition-colors disabled:opacity-50"
               >
                 {archiveInvoiceMutation.isPending
                   ? "جاري الأرشفة..."

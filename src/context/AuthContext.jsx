@@ -7,7 +7,16 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem("user");
-    return saved ? JSON.parse(saved) : null;
+
+    if (!saved) return null;
+
+    try {
+      return JSON.parse(saved);
+    } catch (error) {
+      console.error("Invalid user data in localStorage:", error);
+      localStorage.removeItem("user");
+      return null;
+    }
   });
 
   const login = async (email, password) => {
