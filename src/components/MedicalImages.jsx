@@ -106,6 +106,8 @@ export default function MedicalImages({
   initialToothFilter = null,
 }) {
   const { user } = useAuth();
+  const canEdit = ["ClinicAdmin", "Doctor"].includes(user?.role);
+  
   const queryClient = useQueryClient();
 
   // الفلاتر
@@ -275,7 +277,7 @@ export default function MedicalImages({
           </button>
 
           {/* زر رفع صورة جديدة */}
-          {!showArchived && (
+          {!showArchived && canEdit && (
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}

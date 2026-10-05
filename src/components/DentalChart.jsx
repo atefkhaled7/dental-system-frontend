@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import {
   History,
@@ -250,6 +251,9 @@ export default function DentalChart({
   showToast,
   onNavigateToImages,
 }) {
+  const { user } = useAuth();
+  const canEdit = ["ClinicAdmin", "Doctor"].includes(user?.role);
+
   const queryClient = useQueryClient();
   const [selectedTooth, setSelectedTooth] = useState(16);
   const [mobileArchTab, setMobileArchTab] = useState("upper");
@@ -705,72 +709,77 @@ export default function DentalChart({
               </div>
 
               {/* فورم تعديل الحالة */}
-              <form onSubmit={handleSubmitTooth} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    حالة السن التشخيصية *
-                  </label>
-                  <select
-                    value={toothForm.condition}
-                    onChange={(e) =>
-                      setToothForm({ ...toothForm, condition: e.target.value })
-                    }
-                    className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+              {canEdit && (
+                <form onSubmit={handleSubmitTooth} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      حالة السن التشخيصية *
+                    </label>
+                    <select
+                      value={toothForm.condition}
+                      onChange={(e) =>
+                        setToothForm({
+                          ...toothForm,
+                          condition: e.target.value,
+                        })
+                      }
+                      className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                    >
+                      {Object.entries(CONDITIONS).map(([val, cfg]) => (
+                        <option key={val} value={val}>
+                          {cfg.label} ({val})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      اسم الإجراء الطبي (اختياري)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثال: حشو كومبوزيت، علاج جذور جلسة ثانية..."
+                      value={toothForm.procedure_name}
+                      onChange={(e) =>
+                        setToothForm({
+                          ...toothForm,
+                          procedure_name: e.target.value,
+                        })
+                      }
+                      className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      ملاحظات وتوصيات السن
+                    </label>
+                    <textarea
+                      rows="3"
+                      placeholder="أي ملاحظات سريرية تخص هذا السن..."
+                      value={toothForm.notes}
+                      onChange={(e) =>
+                        setToothForm({ ...toothForm, notes: e.target.value })
+                      }
+                      className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={updateToothMutation.isPending}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-teal-600/20 disabled:opacity-50"
                   >
-                    {Object.entries(CONDITIONS).map(([val, cfg]) => (
-                      <option key={val} value={val}>
-                        {cfg.label} ({val})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    اسم الإجراء الطبي (اختياري)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="مثال: حشو كومبوزيت، علاج جذور جلسة ثانية..."
-                    value={toothForm.procedure_name}
-                    onChange={(e) =>
-                      setToothForm({
-                        ...toothForm,
-                        procedure_name: e.target.value,
-                      })
-                    }
-                    className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    ملاحظات وتوصيات السن
-                  </label>
-                  <textarea
-                    rows="3"
-                    placeholder="أي ملاحظات سريرية تخص هذا السن..."
-                    value={toothForm.notes}
-                    onChange={(e) =>
-                      setToothForm({ ...toothForm, notes: e.target.value })
-                    }
-                    className="w-full bg-[var(--bg-chart-input)] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={updateToothMutation.isPending}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-teal-600/20 disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>
-                    {updateToothMutation.isPending
-                      ? "جاري التوثيق..."
-                      : "حفظ وتوثيق الحالة في الملف"}
-                  </span>
-                </button>
-              </form>
+                    <Save className="w-4 h-4" />
+                    <span>
+                      {updateToothMutation.isPending
+                        ? "جاري التوثيق..."
+                        : "حفظ وتوثيق الحالة في الملف"}
+                    </span>
+                  </button>
+                </form>
+              )}
             </div>
 
             {/* الـ Timeline وسجل تطور السن (7 أجزاء مفرودة ونظيفة) */}
@@ -778,9 +787,7 @@ export default function DentalChart({
               <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)] text-xs">
                 <h4 className="font-bold text-white text-sm flex items-center gap-2">
                   <History className="w-4 h-4 text-teal-400" />
-                  <span>
-                  سجل السن
-                  </span>
+                  <span>سجل السن</span>
                 </h4>
                 <span className="text-xs text-slate-400 font-mono">
                   {toothHistory.length} إجراء مسجل

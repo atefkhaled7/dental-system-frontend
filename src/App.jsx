@@ -8,11 +8,13 @@ import PatientDetails from "./pages/PatientDetails"; // 👈 استدعاء ال
 import Appointments from "./pages/Appointments";
 import Invoices from "./pages/Invoices.jsx";
 import LabOrders from "./pages/LabOrders";
+import PaymentStatus from "./pages/PaymentStatus";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+      <Route path="/payment-status" element={<PaymentStatus />} />
         <Route path="/login" element={<Login />} />
 
         <Route
