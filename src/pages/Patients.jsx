@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import {
@@ -15,6 +20,9 @@ import {
 } from "lucide-react";
 
 export default function Patients() {
+  const [page, setPage] = useState(1);
+  const limit = 10; // عدد العناصر في الصفحة
+
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -36,19 +44,38 @@ export default function Patients() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // لما المستخدم يكتب في السيرش نرجعه للصفحة الأولى
+  const handleSearchChange = (e) => {
+    setSearch(e.target.value);
+    setPage(1);
+  };
+
+  // لما يغير التبويب بين النشط والمؤرشف نرجعه للصفحة الأولى
+  const handleTabChange = (status) => {
+    setShowArchived(status);
+    setPage(1);
+  };
+
   // 1. جلب قائمة المرضى
-  const { data: patients = [], isLoading } = useQuery({
-    queryKey: ["patients", search, showArchived],
+  const { data, isLoading } = useQuery({
+    queryKey: ["patients", { page, limit, search, showArchived }],
     queryFn: async () => {
       const res = await api.get("/patients", {
         params: {
-          ...(search ? { search } : {}),
-          archived: showArchived,
+          page,
+          limit,
+          search: search.trim() || undefined,
+          archived: showArchived ? "true" : undefined,
         },
       });
-      return res.data.patients || [];
+
+      return res.data;
     },
+    placeholderData: keepPreviousData,
   });
+
+  const patients = data?.patients || [];
+  const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
 
   // 2. إضافة مريض جديد
   const addPatientMutation = useMutation({
@@ -145,13 +172,13 @@ export default function Patients() {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={handleSearchChange}
             placeholder="ابحث بالاسم أو رقم الهاتف..."
             className="w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pr-10 pl-4 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
           />
         </div>
         <button
-          onClick={() => setShowArchived(!showArchived)}
+          onClick={() => handleTabChange(!showArchived)}
           className={`px-3.5 py-2 rounded-[var(--radius-btn)] text-xs font-medium border transition-colors ${
             showArchived
               ? "bg-[var(--warning-bg)] border-[var(--warning-text)]/30 text-[var(--warning-text)] hover:bg-[var(--warning-bg)]/80"
@@ -368,6 +395,46 @@ export default function Patients() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* شريط الـ Pagination */}
+      {!isLoading && pagination.total > 0 && (
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-[#070b14]/50 text-sm text-slate-400">
+          {/* 1. الزراير دلوقتي هتبقى على اليمين */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+            >
+              السابق
+            </button>
+
+            <span className="text-xs text-slate-400 px-2">
+              صفحة <span className="font-bold text-teal-400">{page}</span> من{" "}
+              <span className="font-bold text-slate-200">
+                {pagination.totalPages}
+              </span>
+            </span>
+
+            <button
+              onClick={() =>
+                setPage((p) => Math.min(pagination.totalPages, p + 1))
+              }
+              disabled={page >= pagination.totalPages}
+              className="px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+            >
+              التالي
+            </button>
+          </div>
+          <div>
+            عرض{" "}
+            <span className="font-bold text-slate-200">{patients.length}</span>{" "}
+            من أصل{" "}
+            <span className="font-bold text-slate-200">{pagination.total}</span>{" "}
+            مريض
           </div>
         </div>
       )}

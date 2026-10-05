@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BookAppointmentModal from "../components/BookAppointmentModal";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
@@ -30,6 +31,7 @@ const getCurrentDateTimeLocal = () => {
 };
 
 export default function Dashboard() {
+  const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
@@ -58,7 +60,7 @@ export default function Dashboard() {
   };
 
   // تاريخ اليوم المنسق بالعربي
-  const todayFormatted = new Date().toLocaleDateString("en-US", {
+  const todayFormatted = new Date().toLocaleDateString("ar-EG", {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -74,16 +76,10 @@ export default function Dashboard() {
     paidAmount: "",
   });
 
-  // حالة مودال حجز ميعاد جديد من الداشبورد
-  const [isNewAppModalOpen, setIsNewAppModalOpen] = useState(false);
+
   const [activeActionMenu, setActiveActionMenu] = useState(null);
   const [actionMenuPosition, setActionMenuPosition] = useState(null);
-  const [newAppForm, setNewAppForm] = useState({
-    patient_id: "",
-    doctor_id: "",
-    appointment_date: getCurrentDateTimeLocal(),
-    notes: "",
-  });
+
 
   // 1. جلب إحصائيات الداشبورد
   const {
@@ -100,18 +96,6 @@ export default function Dashboard() {
     refetchOnMount: "always",
   });
 
-  // جلب المرضى والدكاترة للمودال السريع
-  const { data: patients = [] } = useQuery({
-    queryKey: ["patients"],
-    queryFn: async () => (await api.get("/patients")).data.patients || [],
-    enabled: isNewAppModalOpen,
-  });
-
-  const { data: doctors = [] } = useQuery({
-    queryKey: ["doctors"],
-    queryFn: async () => (await api.get("/auth/doctors")).data.doctors || [],
-    enabled: isNewAppModalOpen,
-  });
 
   // 2. Mutation تحديث حالة الموعد
   const updateStatusMutation = useMutation({
@@ -153,28 +137,6 @@ export default function Dashboard() {
     },
   });
 
-  // 4. Mutation حجز ميعاد سريع من الداشبورد
-  const createQuickAppointmentMutation = useMutation({
-    mutationFn: async (payload) => {
-      const res = await api.post("/appointments", payload);
-      return res.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["appointments"] });
-      setIsNewAppModalOpen(false);
-      setNewAppForm({
-        patient_id: "",
-        doctor_id: "",
-        appointment_date: getCurrentDateTimeLocal(),
-        notes: "",
-      });
-      showToast("تم حجز الميعاد وإضافته لجدول اليوم بنجاح", "success");
-    },
-    onError: (err) => {
-      showToast(err.response?.data?.error || "فشل حجز الميعاد", "error");
-    },
-  });
 
   const stats = dashboardData?.stats || {
     today_income: 0,
@@ -250,7 +212,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* 🌟 1. هيدر الترحيب + استبدال تسجيل الخروج بتاريخ اليوم */}
+      {/*  هيدر الترحيب م */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--bg-surface)] border border-teal-500/20 p-5 rounded-4xl shadow-xl shadow-black/40 backdrop-blur-xl">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-teal-500/10 border border-teal-500/30 text-teal-400 rounded-xl shadow-md shadow-teal-500/10">
@@ -280,7 +242,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* عرض تاريخ اليوم بدلاً من زر تسجيل الخروج المكرر */}
+        {/* عرض تاريخ اليوم رر */}
         <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-300 text-xs font-medium shadow-sm self-start sm:self-auto">
           <CalendarIcon className="w-4 h-4 text-teal-400 shrink-0" />
           <span>{todayFormatted}</span>
@@ -408,7 +370,7 @@ export default function Dashboard() {
               </h2>
             </div>
             <button
-              onClick={() => setIsNewAppModalOpen(true)}
+              onClick={() => setIsBookModalOpen(true)}
               className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-3 py-1.5 rounded-xl text-xs font-medium transition-all shadow-md shadow-teal-500/20 active:scale-[0.98]"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -733,132 +695,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 🌟 4. نافذة حجز ميعاد سريع */}
-      {isNewAppModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-[var(--bg-surface)] border border-teal-500/30 max-w-md w-full rounded-xl p-6 shadow-2xl shadow-black/80 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <CalendarIcon className="w-5 h-5 text-teal-400" />
-                حجز ميعاد سريع اليوم
-              </h3>
-              <button
-                onClick={() => setIsNewAppModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!newAppForm.patient_id || !newAppForm.doctor_id) {
-                  showToast("يرجى اختيار المريض والطبيب المعالج", "error");
-                  return;
-                }
-                createQuickAppointmentMutation.mutate({
-                  ...newAppForm,
-                  appointment_date: new Date(
-                    newAppForm.appointment_date
-                  ).toISOString(),
-                });
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  المريض *
-                </label>
-                <select
-                  required
-                  value={newAppForm.patient_id}
-                  onChange={(e) =>
-                    setNewAppForm({ ...newAppForm, patient_id: e.target.value })
-                  }
-                  className="w-full bg-[var(--bg-elevated)] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400/20"
-                >
-                  <option value="">-- اختر المريض --</option>
-                  {patients.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.phone_number})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  الطبيب المعالج *
-                </label>
-                <select
-                  required
-                  value={newAppForm.doctor_id}
-                  onChange={(e) =>
-                    setNewAppForm({ ...newAppForm, doctor_id: e.target.value })
-                  }
-                  className="w-full bg-[var(--bg-elevated)] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400/20"
-                >
-                  <option value="">-- اختر الطبيب --</option>
-                  {doctors.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      د. {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  تاريخ ووقت الميعاد *
-                </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={newAppForm.appointment_date}
-                  onChange={(e) =>
-                    setNewAppForm({
-                      ...newAppForm,
-                      appointment_date: e.target.value,
-                    })
-                  }
-                  className="w-full bg-[var(--bg-elevated)] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400/20"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  ملاحظات
-                </label>
-                <input
-                  type="text"
-                  placeholder="ملاحظات سريعة..."
-                  value={newAppForm.notes}
-                  onChange={(e) =>
-                    setNewAppForm({ ...newAppForm, notes: e.target.value })
-                  }
-                  className="w-full bg-[var(--bg-elevated)] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400/20"
-                />
-              </div>
-              <div className="flex gap-3 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsNewAppModalOpen(false)}
-                  className="flex-1 py-2 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-xs transition-colors"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  disabled={createQuickAppointmentMutation.isPending}
-                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-xl text-xs font-medium transition-all shadow-md shadow-teal-500/20 disabled:opacity-50"
-                >
-                  {createQuickAppointmentMutation.isPending
-                    ? "جاري الحجز..."
-                    : "تأكيد الحجز"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* 🌟 5. نافذة إصدار فاتورة فورية */}
       {invoiceModal.isOpen && invoiceModal.appointment && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
@@ -1027,6 +863,14 @@ export default function Dashboard() {
           <span>{toast.message}</span>
         </div>
       )}
+
+      
+
+        {/* استدعاء المودال */}
+        <BookAppointmentModal
+          isOpen={isBookModalOpen}
+          onClose={() => setIsBookModalOpen(false)}
+        />
     </div>
   );
 }

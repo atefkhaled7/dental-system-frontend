@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { printInvoice } from "../utils/printInvoice";
@@ -79,13 +84,48 @@ export default function Invoices() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
+  // 1. State الفلاتر والـ Pagination لجدول الفواتير
+  const [page, setPage] = useState(1);
+  const limit = 10;
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
+  const handleFilterChange = (setter, val) => {
+    setter(val);
+    setPage(1);
+  };
+
+  // 2. كويري جلب الفواتير مع الـ Pagination
+  const { data, isLoading } = useQuery({
+    queryKey: [
+      "invoices",
+      { page, limit, searchTerm, statusFilter, showArchived },
+    ],
+    queryFn: async () => {
+      const res = await api.get("/invoices", {
+        params: {
+          page,
+          limit,
+          search: searchTerm.trim() || undefined,
+          status: statusFilter || undefined,
+          archived: showArchived ? "true" : undefined,
+        },
+      });
+      return res.data;
+    },
+    placeholderData: keepPreviousData,
+  });
+
+  const invoices = data?.invoices || [];
+  const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
+
+  // باقي حالات المودالات
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
 
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
@@ -110,8 +150,8 @@ export default function Invoices() {
       const res = await api.post("/payments/online/create", payload);
       return res.data;
     },
-    onSuccess: (data) => {
-      setGeneratedLinkData(data);
+    onSuccess: (resData) => {
+      setGeneratedLinkData(resData);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (err) => {
@@ -199,38 +239,38 @@ export default function Invoices() {
     notes: "",
   });
 
-  const [showArchived, setShowArchived] = useState(false);
-  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+  // 3. البحث المباشر عن المرضى عند الكتابة في المودال (خفيف جداً وسيرفر سايد)
+  const { data: searchedPatients = [], isFetching: isSearchingPatients } =
+    useQuery({
+      queryKey: ["patients-invoice-search", patientInput],
+      queryFn: async () => {
+        if (!patientInput.trim()) return [];
+        const res = await api.get("/patients", {
+          params: { search: patientInput.trim(), limit: 8 },
+        });
+        return res.data.patients || [];
+      },
+      enabled:
+        isCreateModalOpen &&
+        isPatientDropdownOpen &&
+        patientInput.trim().length > 0 &&
+        !invoiceForm.patient_id,
+      staleTime: 20000,
+    });
 
-  const { data: invoices = [], isLoading } = useQuery({
-    queryKey: ["invoices", searchTerm, statusFilter, showArchived],
-    queryFn: async () => {
-      const res = await api.get("/invoices", {
-        params: {
-          search: searchTerm || undefined,
-          status: statusFilter || undefined,
-          archived: showArchived,
-        },
-      });
-      return Array.isArray(res.data) ? res.data : res.data.invoices || [];
-    },
-  });
-
-  const { data: patients = [] } = useQuery({
-    queryKey: ["patients"],
-    queryFn: async () => {
-      const res = await api.get("/patients");
-      return res.data.patients || [];
-    },
-  });
-
-  const { data: appointments = [] } = useQuery({
-    queryKey: ["appointments"],
-    queryFn: async () => {
-      const res = await api.get("/appointments");
-      return res.data.appointments || [];
-    },
-  });
+  // 4. جلب مواعيد المريض المختار فقط (مش كل مواعيد العيادة!)
+  const { data: patientAppointments = [], isLoading: isLoadingAppointments } =
+    useQuery({
+      queryKey: ["patient-appointments", invoiceForm.patient_id],
+      queryFn: async () => {
+        if (!invoiceForm.patient_id) return [];
+        const res = await api.get("/appointments", {
+          params: { patient_id: invoiceForm.patient_id },
+        });
+        return res.data.appointments || [];
+      },
+      enabled: !!invoiceForm.patient_id && isCreateModalOpen,
+    });
 
   const { data: procedureCodes = [] } = useQuery({
     queryKey: ["procedureCodes"],
@@ -248,6 +288,7 @@ export default function Invoices() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["patient-appointments"] });
       setIsCreateModalOpen(false);
       setInvoiceForm(defaultInvoiceState);
       setPatientInput("");
@@ -262,10 +303,10 @@ export default function Invoices() {
       const res = await api.post("/patients", p);
       return res.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (resData) => {
       queryClient.invalidateQueries({ queryKey: ["patients"] });
-      setInvoiceForm((prev) => ({ ...prev, patient_id: data.patient.id }));
-      setPatientInput(data.patient.name);
+      setInvoiceForm((prev) => ({ ...prev, patient_id: resData.patient.id }));
+      setPatientInput(resData.patient.name);
       setIsNewPatientModalOpen(false);
       setIsPatientDropdownOpen(false);
       setNewPatientData({ name: "", phone_number: "", gender: "Male" });
@@ -372,7 +413,7 @@ export default function Invoices() {
   };
 
   const calculatedTotal = invoiceForm.items.reduce((sum, item) => {
-    const qty = parseInt(item.quantity) || 0;
+    const qty = parseInt(item.quantity, 10) || 0;
     const price = parseFloat(item.unit_price) || 0;
     return sum + qty * price;
   }, 0);
@@ -421,16 +462,6 @@ export default function Invoices() {
       notes: paymentForm.notes,
     });
   };
-
-  const filteredPatients = patients.filter(
-    (p) =>
-      p.name.toLowerCase().includes(patientInput.toLowerCase()) ||
-      p.phone_number.includes(patientInput)
-  );
-
-  const patientAppointments = appointments.filter(
-    (a) => a.patient_id === invoiceForm.patient_id
-  );
 
   const statusConfig = {
     unpaid: {
@@ -497,7 +528,7 @@ export default function Invoices() {
             type="text"
             placeholder="ابحث باسم المريض أو رقمه..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)}
             className="w-full bg-[#111827] border border-[#243047] rounded-md pr-10 pl-4 py-2 text-[13px] text-[#F8FAFC] placeholder-[#64748B] focus:outline-none focus:border-[#0D9488]"
           />
         </div>
@@ -512,7 +543,7 @@ export default function Invoices() {
             ].map((tab) => (
               <button
                 key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
+                onClick={() => handleFilterChange(setStatusFilter, tab.value)}
                 className={`px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border ${
                   statusFilter === tab.value
                     ? "bg-[#042F2E] text-[#0D9488] border-[#0D9488]"
@@ -525,7 +556,7 @@ export default function Invoices() {
           </div>
 
           <button
-            onClick={() => setShowArchived(!showArchived)}
+            onClick={() => handleFilterChange(setShowArchived, !showArchived)}
             className={`px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap border transition-all ${
               showArchived
                 ? "bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#FBBF24] hover:bg-[#F59E0B]/20"
@@ -677,6 +708,50 @@ export default function Invoices() {
             </table>
           </div>
         )}
+
+        {/* شريط الـ Pagination */}
+        {!isLoading && pagination.total > 0 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-[#243047] bg-[#080D18] text-sm text-[#94A3B8]">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3.5 py-1.5 rounded-lg border border-[#243047] bg-[#111827] hover:bg-[#172033] text-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                السابق
+              </button>
+
+              <span className="text-xs text-[#94A3B8] px-2">
+                صفحة <span className="font-bold text-[#0D9488]">{page}</span> من{" "}
+                <span className="font-bold text-[#F8FAFC]">
+                  {pagination.totalPages}
+                </span>
+              </span>
+
+              <button
+                onClick={() =>
+                  setPage((p) => Math.min(pagination.totalPages, p + 1))
+                }
+                disabled={page >= pagination.totalPages}
+                className="px-3.5 py-1.5 rounded-lg border border-[#243047] bg-[#111827] hover:bg-[#172033] text-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                التالي
+              </button>
+            </div>
+
+            <div>
+              عرض{" "}
+              <span className="font-bold text-[#F8FAFC]">
+                {invoices.length}
+              </span>{" "}
+              من أصل{" "}
+              <span className="font-bold text-[#F8FAFC]">
+                {pagination.total}
+              </span>{" "}
+              فاتورة
+            </div>
+          </div>
+        )}
       </div>
 
       {/* نافذة إنشاء فاتورة جديدة */}
@@ -697,7 +772,7 @@ export default function Invoices() {
             </div>
 
             <form onSubmit={handleSubmitInvoice} className="space-y-6">
-              {/* المريض */}
+              {/* اختيار المريض مع البحث اللحظي */}
               <div className="relative">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[13px] font-medium text-[#CBD5E1]">
@@ -722,7 +797,11 @@ export default function Invoices() {
                     onFocus={() => setIsPatientDropdownOpen(true)}
                     onChange={(e) => {
                       setPatientInput(e.target.value);
-                      setInvoiceForm({ ...invoiceForm, patient_id: "" });
+                      setInvoiceForm({
+                        ...invoiceForm,
+                        patient_id: "",
+                        appointment_id: "",
+                      });
                       setIsPatientDropdownOpen(true);
                     }}
                     className={`w-full bg-[#111827] border ${
@@ -735,35 +814,50 @@ export default function Invoices() {
                     <Check className="w-4 h-4 text-[#34D399] absolute left-3.5 top-3.5" />
                   )}
                 </div>
-                {isPatientDropdownOpen && (
-                  <div className="absolute z-20 w-full mt-1 border border-[#243047] bg-[#111827] rounded-md shadow-lg max-h-40 overflow-y-auto divide-y divide-[#243047]">
-                    {filteredPatients.map((p) => (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          setInvoiceForm({
-                            ...invoiceForm,
-                            patient_id: p.id,
-                            appointment_id: "",
-                          });
-                          setPatientInput(p.name);
-                          setIsPatientDropdownOpen(false);
-                        }}
-                        className="p-3 hover:bg-[#172033] cursor-pointer flex justify-between text-[13px]"
-                      >
-                        <span className="text-[#F8FAFC] font-medium">
-                          {p.name}
-                        </span>
-                        <span
-                          className="text-xs text-[#94A3B8] font-mono"
-                          dir="ltr"
-                        >
-                          {p.phone_number}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+
+                {isPatientDropdownOpen &&
+                  patientInput.trim() &&
+                  !invoiceForm.patient_id && (
+                    <div className="absolute z-20 w-full mt-1 border border-[#243047] bg-[#111827] rounded-md shadow-lg max-h-48 overflow-y-auto divide-y divide-[#243047]">
+                      {isSearchingPatients ? (
+                        <div className="p-3 text-center text-xs text-[#94A3B8] flex items-center justify-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
+                          <span>جاري البحث في قاعدة البيانات...</span>
+                        </div>
+                      ) : searchedPatients.length > 0 ? (
+                        searchedPatients.map((p) => (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setInvoiceForm({
+                                ...invoiceForm,
+                                patient_id: p.id,
+                                appointment_id: "",
+                              });
+                              setPatientInput(p.name);
+                              setIsPatientDropdownOpen(false);
+                            }}
+                            className="p-3 hover:bg-[#172033] cursor-pointer flex justify-between text-[13px] transition-colors"
+                          >
+                            <span className="text-[#F8FAFC] font-medium">
+                              {p.name}
+                            </span>
+                            <span
+                              className="text-xs text-[#94A3B8] font-mono"
+                              dir="ltr"
+                            >
+                              {p.phone_number}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-3 text-center text-xs text-[#64748B]">
+                          لا يوجد مريض مطابق. يمكنك الضغط على "+ مريض جديد"
+                          لإضافته فوراً.
+                        </div>
+                      )}
+                    </div>
+                  )}
               </div>
 
               {/* الطبيب وتاريخ الكشف */}
@@ -810,44 +904,54 @@ export default function Invoices() {
                 </div>
               </div>
 
-              {invoiceForm.patient_id && patientAppointments.length > 0 && (
+              {/* ربط بميعاد حجز سابق للمريض المختار فقط */}
+              {invoiceForm.patient_id && (
                 <div>
                   <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
                     ربط بميعاد حجز سابق (اختياري)
                   </label>
-                  <select
-                    value={invoiceForm.appointment_id}
-                    onChange={(e) => {
-                      const apptId = e.target.value;
-                      const selectedApt = patientAppointments.find(
-                        (a) => a.appointment_id === apptId
-                      );
-                      setInvoiceForm({
-                        ...invoiceForm,
-                        appointment_id: apptId,
-                        doctor_id: selectedApt
-                          ? selectedApt.doctor_id
-                          : invoiceForm.doctor_id,
-                      });
-                    }}
-                    className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[#F8FAFC] focus:outline-none focus:border-[#0D9488] text-[13px]"
-                  >
-                    <option value="">
-                      -- كشف فوري (سيتم إنشاء ميعاد تلقائياً) --
-                    </option>
-                    {patientAppointments.map((apt) => (
-                      <option
-                        key={apt.appointment_id}
-                        value={apt.appointment_id}
-                      >
-                        ميعاد يوم{" "}
-                        {new Date(apt.appointment_date).toLocaleDateString(
-                          "en-GB"
-                        )}{" "}
-                        مع د. {apt.doctor_name}
+                  {isLoadingAppointments ? (
+                    <div className="p-2 text-xs text-[#94A3B8] flex items-center gap-2 bg-[#111827] rounded-md border border-[#243047]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
+                      <span>جاري البحث عن مواعيد هذا المريض...</span>
+                    </div>
+                  ) : patientAppointments.length > 0 ? (
+                    <select
+                      value={invoiceForm.appointment_id}
+                      onChange={(e) => {
+                        const apptId = e.target.value;
+                        const selectedApt = patientAppointments.find(
+                          (a) => a.id === apptId
+                        );
+                        setInvoiceForm({
+                          ...invoiceForm,
+                          appointment_id: apptId,
+                          doctor_id: selectedApt
+                            ? selectedApt.doctor_id
+                            : invoiceForm.doctor_id,
+                        });
+                      }}
+                      className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-[#F8FAFC] focus:outline-none focus:border-[#0D9488] text-[13px]"
+                    >
+                      <option value="">
+                        -- كشف فوري (سيتم إنشاء ميعاد تلقائياً) --
                       </option>
-                    ))}
-                  </select>
+                      {patientAppointments.map((apt) => (
+                        <option key={apt.id} value={apt.id}>
+                          ميعاد يوم{" "}
+                          {new Date(apt.appointment_date).toLocaleDateString(
+                            "en-GB"
+                          )}{" "}
+                          مع د. {apt.doctor_name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="p-2.5 bg-[#080D18] border border-[#243047] rounded-md text-xs text-[#94A3B8]">
+                      لا توجد مواعيد سابقة لهذا المريض (سيتم تسجيل ميعاد كشف
+                      تلقائي مع الفاتورة).
+                    </div>
+                  )}
                 </div>
               )}
 
