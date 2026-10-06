@@ -24,12 +24,6 @@ import {
   MoreVertical,
 } from "lucide-react";
 
-const getCurrentDateTimeLocal = () => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
-};
-
 export default function Dashboard() {
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const { user } = useAuth();
@@ -42,20 +36,25 @@ export default function Dashboard() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  //طباعة الفاتورة
+  const [printingInvoiceId, setPrintingInvoiceId] = useState(null);
+
+  // طباعة الفاتورة بضغطة زر
   const handlePrintAppointmentInvoice = async (invoiceId) => {
     if (!invoiceId) return;
-
     try {
+      setPrintingInvoiceId(invoiceId);
       const res = await api.get(`/invoices/${invoiceId}`);
       const invoice = res.data?.invoice || res.data;
-
-      printInvoice(invoice);
+      if (invoice) {
+        printInvoice(invoice);
+      }
     } catch (err) {
       showToast(
         err.response?.data?.error || "فشل تحميل بيانات الفاتورة للطباعة",
         "error"
       );
+    } finally {
+      setPrintingInvoiceId(null);
     }
   };
 
@@ -76,10 +75,8 @@ export default function Dashboard() {
     paidAmount: "",
   });
 
-
   const [activeActionMenu, setActiveActionMenu] = useState(null);
   const [actionMenuPosition, setActionMenuPosition] = useState(null);
-
 
   // 1. جلب إحصائيات الداشبورد
   const {
@@ -96,33 +93,48 @@ export default function Dashboard() {
     refetchOnMount: "always",
   });
 
-
-  // 2. Mutation تحديث حالة الموعد
+  // 2. Mutation تحديث حالة الموعد مع فتح الفاتورة تلقائياً عند الاكتمال
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }) => {
+    mutationFn: async ({ id, status, appointment }) => {
       const res = await api.patch(`/appointments/${id}/status`, { status });
-      return res.data;
+      return { data: res.data, status, appointment };
     },
-    onSuccess: () => {
+    onSuccess: ({ status, appointment }) => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
       showToast("تم تحديث حالة الميعاد بنجاح", "success");
+
+      // فتح مودال الفاتورة تلقائياً لو الموعد اكتمل ولسه ملوش فاتورة
+      if (
+        status === "completed" &&
+        appointment &&
+        !appointment.appointment_invoice_id
+      ) {
+        setInvoiceModal({
+          isOpen: true,
+          appointment: { ...appointment, status: "completed" },
+          itemDescription: "كشف عيادة / علاج",
+          itemPrice: "",
+          paidAmount: "",
+        });
+      }
     },
     onError: (err) => {
       showToast(err.response?.data?.error || "فشل تحديث الحالة", "error");
     },
   });
 
-  // 3. Mutation تحويل الموعد إلى فاتورة
+  // 3. Mutation تحويل الموعد إلى فاتورة + طباعتها فوراً
   const convertToInvoiceMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/invoices", payload);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+
       setInvoiceModal({
         isOpen: false,
         appointment: null,
@@ -130,13 +142,30 @@ export default function Dashboard() {
         itemPrice: "",
         paidAmount: "",
       });
-      showToast("تم إصدار الفاتورة وتحديث دخل اليوم والديون بنجاح", "success");
+
+      showToast(
+        "تم إصدار الفاتورة وتحديث الدخل، جاري فتح الطباعة...",
+        "success"
+      );
+
+      // فتح نافذة الطباعة فوراً
+      try {
+        const createdInvoiceId = data?.invoice?.id;
+        if (createdInvoiceId) {
+          const res = await api.get(`/invoices/${createdInvoiceId}`);
+          const invoice = res.data?.invoice || res.data;
+          if (invoice) {
+            printInvoice(invoice);
+          }
+        }
+      } catch (err) {
+        console.error("Print error:", err);
+      }
     },
     onError: (err) => {
       showToast(err.response?.data?.error || "فشل إصدار الفاتورة", "error");
     },
   });
-
 
   const stats = dashboardData?.stats || {
     today_income: 0,
@@ -212,7 +241,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/*  هيدر الترحيب م */}
+      {/* 🌟 هيدر الترحيب */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--bg-surface)] border border-teal-500/20 p-5 rounded-4xl shadow-xl shadow-black/40 backdrop-blur-xl">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-teal-500/10 border border-teal-500/30 text-teal-400 rounded-xl shadow-md shadow-teal-500/10">
@@ -242,16 +271,16 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* عرض تاريخ اليوم رر */}
+        {/* عرض تاريخ اليوم */}
         <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-300 text-xs font-medium shadow-sm self-start sm:self-auto">
           <CalendarIcon className="w-4 h-4 text-teal-400 shrink-0" />
           <span>{todayFormatted}</span>
         </div>
       </div>
 
-      {/* 🌟 2. كروت المؤشرات السريعة (KPIs) المعاد توزيعها بنظام 3 في الصف الأول + 2 في الصف الثاني */}
+      {/* 🌟 2. كروت المؤشرات السريعة (KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        {/* كارت 1: الدخل المالي المدمج (إيرادات الشهر + محصل اليوم) */}
+        {/* كارت 1: الدخل المالي المدمج */}
         <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-emerald-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
           <div className="flex items-start justify-between">
             <div>
@@ -296,7 +325,7 @@ export default function Dashboard() {
           </span>
         </div>
 
-        {/* كارت 3: إجمالي المرضى النشطين (الـ KPI الخامس الجديد) */}
+        {/* كارت 3: إجمالي المرضى النشطين */}
         <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-teal-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
           <div className="flex items-start justify-between">
             <div>
@@ -391,8 +420,8 @@ export default function Dashboard() {
                     <th className="py-3 px-4">المريض والمستحقات</th>
                     <th className="py-3 px-4">الوقت</th>
                     <th className="py-3 px-4">الطبيب</th>
-                    <th className="py-3 px-4">الحالة</th>
-                    <th className="py-3 px-4 text-center">إجراءات الكشف</th>
+                    <th className="py-3 px-4">الحالة والفوترة</th>
+                    <th className="py-3 px-4 text-center">إجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80 text-slate-300">
@@ -406,17 +435,14 @@ export default function Dashboard() {
                         <p className="font-semibold text-white">
                           {apt.patient_name}
                         </p>
-
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-slate-400 font-mono" dir="ltr">
                             {apt.patient_phone}
                           </span>
-
                           <span className="text-slate-600">•</span>
-
                           {!apt.appointment_invoice_id ? (
                             <span className="text-[11px] text-amber-400 font-medium">
-                              بدون فاتورة
+                              بانتظار الفاتورة
                             </span>
                           ) : parseFloat(apt.patient_total_due) > 0 ? (
                             <span className="text-[11px] font-bold text-rose-400 font-mono">
@@ -442,16 +468,25 @@ export default function Dashboard() {
                       {/* الطبيب */}
                       <td className="py-3 px-4">د. {apt.doctor_name}</td>
 
-                      {/* الحالة */}
+                      {/* الحالة والفوترة */}
                       <td className="py-3 px-4">
-                        <span
-                          className={`px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
-                            statusConfig[apt.status]?.bg ||
-                            "bg-slate-800 text-slate-400 border-slate-700"
-                          }`}
-                        >
-                          {statusConfig[apt.status]?.label || apt.status}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`px-2 py-0.5 rounded-lg border text-[11px] font-medium ${
+                              statusConfig[apt.status]?.bg ||
+                              "bg-slate-800 text-slate-400 border-slate-700"
+                            }`}
+                          >
+                            {statusConfig[apt.status]?.label || apt.status}
+                          </span>
+
+                          {apt.appointment_invoice_id && (
+                            <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                              <span>✓</span>
+                              <span>تمت الفوترة</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* الإجراءات */}
@@ -459,32 +494,27 @@ export default function Dashboard() {
                         <div className="flex items-center justify-center">
                           <button
                             type="button"
-                            title="إجراءات الموعد"
+                            title="خيارات الموعد"
                             onClick={(e) => {
                               if (activeActionMenu === apt.appointment_id) {
                                 setActiveActionMenu(null);
                                 setActionMenuPosition(null);
                                 return;
                               }
-
                               const rect =
                                 e.currentTarget.getBoundingClientRect();
-
                               const estimatedMenuHeight =
                                 apt.status === "scheduled" ? 210 : 70;
-
                               const spaceBelow =
                                 window.innerHeight - rect.bottom;
                               const shouldOpenUp =
                                 spaceBelow < estimatedMenuHeight + 10;
-
                               setActionMenuPosition({
                                 top: shouldOpenUp
                                   ? rect.top - estimatedMenuHeight - 6
                                   : rect.bottom + 6,
                                 left: rect.left,
                               });
-
                               setActiveActionMenu(apt.appointment_id);
                             }}
                             className="inline-flex items-center justify-center p-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] transition-colors"
@@ -493,7 +523,7 @@ export default function Dashboard() {
                           </button>
                         </div>
 
-                        {/* قائمة الإجراءات */}
+                        {/* قائمة الإجراءات العائمة */}
                         {activeActionMenu === apt.appointment_id &&
                           createPortal(
                             <>
@@ -504,16 +534,14 @@ export default function Dashboard() {
                                   setActionMenuPosition(null);
                                 }}
                               />
-
                               <div
                                 style={{
                                   position: "fixed",
                                   top: actionMenuPosition?.top ?? 0,
                                   left: actionMenuPosition?.left ?? 0,
                                 }}
-                                className="w-44 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] shadow-elevation p-1.5 z-[9999] space-y-1"
+                                className="w-48 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] shadow-elevation p-1.5 z-[9999] space-y-1 text-right"
                               >
-                                {/* إجراءات الموعد */}
                                 {apt.status === "scheduled" && (
                                   <>
                                     <button
@@ -521,10 +549,10 @@ export default function Dashboard() {
                                       onClick={() => {
                                         setActiveActionMenu(null);
                                         setActionMenuPosition(null);
-
                                         updateStatusMutation.mutate({
                                           id: apt.appointment_id,
                                           status: "completed",
+                                          appointment: apt,
                                         });
                                       }}
                                       className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--success-text)] hover:bg-[var(--success-bg)] rounded-[var(--radius-btn)] transition-colors"
@@ -538,10 +566,10 @@ export default function Dashboard() {
                                       onClick={() => {
                                         setActiveActionMenu(null);
                                         setActionMenuPosition(null);
-
                                         updateStatusMutation.mutate({
                                           id: apt.appointment_id,
                                           status: "no_show",
+                                          appointment: apt,
                                         });
                                       }}
                                       className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--warning-text)] hover:bg-[var(--warning-bg)] rounded-[var(--radius-btn)] transition-colors"
@@ -555,10 +583,10 @@ export default function Dashboard() {
                                       onClick={() => {
                                         setActiveActionMenu(null);
                                         setActionMenuPosition(null);
-
                                         updateStatusMutation.mutate({
                                           id: apt.appointment_id,
                                           status: "cancelled",
+                                          appointment: apt,
                                         });
                                       }}
                                       className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--danger-text)] hover:bg-[var(--danger-bg)] rounded-[var(--radius-btn)] transition-colors"
@@ -571,22 +599,30 @@ export default function Dashboard() {
                                   </>
                                 )}
 
-                                {/* الفاتورة */}
+                                {/* خيارات الفاتورة والطباعة */}
                                 {apt.appointment_invoice_id ? (
                                   <button
                                     type="button"
+                                    disabled={
+                                      printingInvoiceId ===
+                                      apt.appointment_invoice_id
+                                    }
                                     onClick={() => {
                                       setActiveActionMenu(null);
                                       setActionMenuPosition(null);
-
                                       handlePrintAppointmentInvoice(
                                         apt.appointment_invoice_id
                                       );
                                     }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--primary-base)] hover:bg-[var(--primary-muted)] rounded-[var(--radius-btn)] transition-colors"
                                   >
-                                    <Printer className="w-4 h-4" />
-                                    <span>طباعة الفاتورة</span>
+                                    {printingInvoiceId ===
+                                    apt.appointment_invoice_id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Printer className="w-4 h-4" />
+                                    )}
+                                    <span>طباعة الفاتورة 🖨️</span>
                                   </button>
                                 ) : (
                                   <button
@@ -594,7 +630,6 @@ export default function Dashboard() {
                                     onClick={() => {
                                       setActiveActionMenu(null);
                                       setActionMenuPosition(null);
-
                                       setInvoiceModal({
                                         isOpen: true,
                                         appointment: apt,
@@ -606,7 +641,7 @@ export default function Dashboard() {
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--primary-base)] hover:bg-[var(--primary-muted)] rounded-[var(--radius-btn)] transition-colors"
                                   >
                                     <Receipt className="w-4 h-4" />
-                                    <span>إصدار فاتورة</span>
+                                    <span>إصدار وطباعة فاتورة</span>
                                   </button>
                                 )}
                               </div>
@@ -695,14 +730,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 🌟 5. نافذة إصدار فاتورة فورية */}
+      {/* 🌟 5. نافذة إصدار فاتورة فورية + طباعة مباشرة */}
       {invoiceModal.isOpen && invoiceModal.appointment && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-[var(--bg-surface)] border border-teal-500/30 max-w-md w-full rounded-xl p-6 shadow-2xl shadow-black/80 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-emerald-400" />
-                إصدار فاتورة سريعة
+                <Printer className="w-5 h-5 text-teal-400" />
+                إصدار وطباعة فاتورة سريعة
               </h3>
               <button
                 onClick={() =>
@@ -834,11 +869,19 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={convertToInvoiceMutation.isPending}
-                  className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white py-2 rounded-xl text-xs font-medium transition-all shadow-md shadow-emerald-600/20 disabled:opacity-50"
+                  className="flex-1 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white py-2 rounded-xl text-xs font-medium transition-all shadow-md shadow-teal-600/20 disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {convertToInvoiceMutation.isPending
-                    ? "جاري الحفظ..."
-                    : "إصدار وتحديث الدخل"}
+                  {convertToInvoiceMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الحفظ...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>إصدار وطباعة</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -846,7 +889,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 🌟 6. التوست الموحد باللمسة الداكنة والحدود النظيفة */}
+      {/* 🌟 6. التوست الموحد */}
       {toast && (
         <div
           className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl backdrop-blur-xl border text-sm font-medium transition-all transform animate-in slide-in-from-bottom-5 ${
@@ -864,13 +907,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      
-
-        {/* استدعاء المودال */}
-        <BookAppointmentModal
-          isOpen={isBookModalOpen}
-          onClose={() => setIsBookModalOpen(false)}
-        />
+      {/* استدعاء المودال الموحد لحجز المواعيد */}
+      <BookAppointmentModal
+        isOpen={isBookModalOpen}
+        onClose={() => setIsBookModalOpen(false)}
+      />
     </div>
   );
 }

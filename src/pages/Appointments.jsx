@@ -3,6 +3,7 @@ import BookAppointmentModal from "../components/BookAppointmentModal";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
+import { printInvoice } from "../utils/printInvoice";
 import api from "../api/axios";
 import {
   Calendar as CalendarIcon,
@@ -20,6 +21,7 @@ import {
   Loader2,
   Filter,
   Receipt,
+  Printer,
   RefreshCw,
   Trash2,
   MessageCircle,
@@ -47,38 +49,18 @@ const getTomorrowString = () => {
 export default function Appointments() {
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const queryClient = useQueryClient();
-
   const { user } = useAuth();
-
   const [durationSettingsOpen, setDurationSettingsOpen] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState(30);
-  // const [isModalOpen, setIsModalOpen] = useState(false);
-  // const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
-
-  // // حالة التحكم في الـ Combobox الذكي
-  // const [patientInput, setPatientInput] = useState("");
-  // const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
-  // // فورم حجز الميعاد
-  // const [formData, setFormData] = useState({
-  //   patient_id: "",
-  //   doctor_id: "",
-  //   appointment_date: getCurrentDateTimeLocal(),
-  //   notes: "",
-  // });
-
-  // // فورم إضافة مريض سريع
-  // const [newPatientData, setNewPatientData] = useState({
-  //   name: "",
-  //   phone_number: "",
-  //   gender: "Male",
-  // });
 
   // فلاتر المواعيد
   const [dateFilterMode, setDateFilterMode] = useState("all");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterDoctor, setFilterDoctor] = useState("");
+
+  // حالة لودينج زر الطباعة المباشرة
+  const [printingInvoiceId, setPrintingInvoiceId] = useState(null);
 
   // نظام التوست الموحد
   const [toast, setToast] = useState(null);
@@ -100,7 +82,7 @@ export default function Appointments() {
   const [invoiceModal, setInvoiceModal] = useState({
     isOpen: false,
     appointment: null,
-    itemDescription: "كشف / استشارة",
+    itemDescription: "كشف عيادة / استشارة",
     itemPrice: "",
     paidAmount: "",
   });
@@ -117,10 +99,24 @@ export default function Appointments() {
   const [whatsAppMenuPosition, setWhatsAppMenuPosition] = useState(null);
   const whatsAppMenuRef = useRef(null);
 
+  // دالة طباعة فاتورة موجودة بالفعل بضغطة زر
+  const handlePrintExistingInvoice = async (invoiceId) => {
+    try {
+      setPrintingInvoiceId(invoiceId);
+      const res = await api.get(`/invoices/${invoiceId}`);
+      if (res.data) {
+        printInvoice(res.data);
+      }
+    } catch (err) {
+      showToast("تعذر جلب بيانات الفاتورة للطباعة", "error");
+    } finally {
+      setPrintingInvoiceId(null);
+    }
+  };
+
   // دالة إرسال رسائل الواتساب
   const handleSendWhatsApp = async (appointmentId, type) => {
     setActiveWhatsAppMenu(null);
-
     const newTab = window.open("about:blank", "_blank");
     if (!newTab) {
       showToast(
@@ -130,12 +126,10 @@ export default function Appointments() {
       return;
     }
     newTab.opener = null;
-
     try {
       const res = await api.get(
         `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`
       );
-
       if (res.data?.url) {
         newTab.location.href = res.data.url;
         showToast("تم فتح واتساب برسالة المريض بنجاح.", "success");
@@ -162,7 +156,6 @@ export default function Appointments() {
         setWhatsAppMenuPosition(null);
       }
     };
-
     document.addEventListener("mousedown", handleOutsideClick);
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
@@ -182,7 +175,6 @@ export default function Appointments() {
       const params = {};
       if (filterDate) params.date = filterDate;
       if (filterDoctor) params.doctor_id = filterDoctor;
-
       const res = await api.get("/appointments", { params });
       return res.data.appointments || [];
     },
@@ -193,15 +185,6 @@ export default function Appointments() {
         (apt) => (apt.status || "").toLowerCase().trim() === filterStatus
       )
     : appointments;
-
-  // // جلب المرضى
-  // const { data: patients = [] } = useQuery({
-  //   queryKey: ["patients"],
-  //   queryFn: async () => {
-  //     const res = await api.get("/patients");
-  //     return res.data.patients || [];
-  //   },
-  // });
 
   const { data: durationSettings } = useQuery({
     queryKey: ["clinic-duration-settings"],
@@ -221,15 +204,27 @@ export default function Appointments() {
     },
   });
 
-  // تحديث حالة الميعاد
+  // تحديث حالة الميعاد + فتح الفاتورة تلقائياً عند الاكتمال
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }) => {
+    mutationFn: async ({ id, status, appointment }) => {
       const res = await api.patch(`/appointments/${id}/status`, { status });
-      return res.data;
+      return { data: res.data, status, appointment };
     },
-    onSuccess: () => {
+    onSuccess: ({ status, appointment }) => {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       showToast("تم تحديث حالة الميعاد بنجاح", "success");
+
+      // لو الموعد اكتمل ولسه ملوش فاتورة، نفتح مودال الفاتورة تلقائياً
+      if (status === "completed" && appointment && !appointment.invoice_id) {
+        setInvoiceModal({
+          isOpen: true,
+          appointment: { ...appointment, status: "completed" },
+          itemDescription: "كشف عيادة / استشارة",
+          itemPrice: "",
+          paidAmount: "",
+        });
+      }
     },
     onError: (err) => {
       showToast(err.response?.data?.error || "فشل تحديث الحالة", "error");
@@ -263,23 +258,39 @@ export default function Appointments() {
     },
   });
 
-  // تحويل الموعد إلى فاتورة
+  // تحويل الموعد إلى فاتورة + طباعتها فوراً
   const convertToInvoiceMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/invoices", payload);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+
       setInvoiceModal({
         isOpen: false,
         appointment: null,
-        itemDescription: "كشف / استشارة",
+        itemDescription: "كشف عيادة / استشارة",
         itemPrice: "",
         paidAmount: "",
       });
-      showToast("تم إصدار الفاتورة للموعد بنجاح", "success");
+
+      showToast("تم إصدار الفاتورة بنجاح، جاري فتح الطباعة...", "success");
+
+      // فتح نافذة الطباعة فوراً
+      try {
+        const createdInvoiceId = data?.invoice?.id;
+        if (createdInvoiceId) {
+          const fullInv = await api.get(`/invoices/${createdInvoiceId}`);
+          if (fullInv.data) {
+            printInvoice(fullInv.data);
+          }
+        }
+      } catch (printErr) {
+        console.error("Print auto open error:", printErr);
+      }
     },
     onError: (err) => {
       showToast(
@@ -289,7 +300,7 @@ export default function Appointments() {
     },
   });
 
-  //زرار تغيير مدة الكشف
+  // زرار تغيير مدة الكشف
   const updateDurationMutation = useMutation({
     mutationFn: async (newDuration) => {
       const res = await api.patch("/appointments/settings/duration", {
@@ -297,17 +308,13 @@ export default function Appointments() {
       });
       return res.data;
     },
-
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["clinic-duration-settings"],
       });
-
       setDurationSettingsOpen(false);
-
       showToast("تم تحديث مدة الكشف الافتراضية بنجاح", "success");
     },
-
     onError: (error) => {
       showToast(
         error.response?.data?.error || "حدث خطأ أثناء تحديث مدة الكشف",
@@ -343,7 +350,6 @@ export default function Appointments() {
     return `${date} - ${time}`;
   };
 
-  // البادجات مطابقة تماماً لقاعدة الشفافية 10% ونظام الألوان
   const statusConfig = {
     scheduled: {
       label: "مجدول",
@@ -376,25 +382,23 @@ export default function Appointments() {
             متابعة الحجوزات وتنظيم مواعيد العيادة بدقة
           </p>
         </div>
-
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          {["ClinicAdmin", "Receptionist", "Doctor"].includes(user?.role) && (
+            <button
+              onClick={() => {
+                setDefaultDuration(
+                  durationSettings?.default_appointment_duration || 30
+                );
+                setDurationSettingsOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
+            >
+              <Clock className="w-4 h-4" />
+              <span>مدة الكشف الافتراضية</span>
+            </button>
+          )}
           <button
-            onClick={() => {
-              setDefaultDuration(
-                durationSettings?.default_appointment_duration || 30
-              );
-              setDurationSettingsOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
-          >
-            <Clock className="w-4 h-4" />
-            <span>مدة الكشف الافتراضية</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setIsBookModalOpen(true);
-            }}
+            onClick={() => setIsBookModalOpen(true)}
             className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -403,15 +407,14 @@ export default function Appointments() {
         </div>
       </div>
 
-      {/* 🌟 شريط الفلاتر (Surface وبوردر Default بدون شادو) */}
-      <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4 ">
+      {/* 🌟 شريط الفلاتر */}
+      <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4">
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-[var(--primary-base)]" />
           <span className="text-xs font-medium text-[var(--text-secondary)]">
             فلترة المواعيد:
           </span>
         </div>
-
         <div className="flex flex-wrap items-center gap-2.5">
           {/* فلترة التاريخ */}
           <div className="relative">
@@ -420,7 +423,6 @@ export default function Appointments() {
               onChange={(e) => {
                 const value = e.target.value;
                 setDateFilterMode(value);
-
                 if (value === "all") setFilterDate("");
                 else if (value === "today") setFilterDate(getTodayString());
                 else if (value === "tomorrow")
@@ -482,7 +484,7 @@ export default function Appointments() {
         </div>
       </div>
 
-      {/* 🌟 جدول المواعيد (Surface + Border Default + No Shadow) */}
+      {/* 🌟 جدول المواعيد */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden">
         {isLoading ? (
           <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
@@ -562,7 +564,9 @@ export default function Appointments() {
                   <th className="py-3.5 px-5 font-medium text-xs">
                     تاريخ ووقت الميعاد
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">الحالة</th>
+                  <th className="py-3.5 px-5 font-medium text-xs">
+                  حالة الموعد والفاتورة
+                  </th>
                   <th className="py-3.5 px-5 font-medium text-xs text-center">
                     الإجراءات
                   </th>
@@ -571,6 +575,8 @@ export default function Appointments() {
               <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
                 {filteredAppointments.map((apt) => {
                   const status = (apt.status || "").toLowerCase().trim();
+                  const hasInvoice = !!apt.invoice_id;
+
                   return (
                     <tr
                       key={apt.id}
@@ -599,7 +605,7 @@ export default function Appointments() {
                         </div>
                       </td>
 
-                      {/* التاريخ والوقت */}
+                      {/* التاريخ والوقت والمدة */}
                       <td className="py-3.5 px-5">
                         <div className="flex items-center gap-2 text-[var(--text-secondary)] font-mono text-xs">
                           <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
@@ -607,18 +613,43 @@ export default function Appointments() {
                             {formatDateTime(apt.appointment_date)}
                           </span>
                         </div>
+                        {apt.duration_minutes && (
+                          <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
+                            المدة: {apt.duration_minutes} دقيقة
+                          </span>
+                        )}
                       </td>
 
-                      {/* بادج الحالة */}
+                      {/* حالة الموعد والفوترة - شكل نظيف وبدون أزرار ضخمة */}
                       <td className="py-3.5 px-5">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
-                            statusConfig[status]?.bg ||
-                            "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
-                          }`}
-                        >
-                          {statusConfig[status]?.label || apt.status}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
+                              statusConfig[status]?.bg ||
+                              "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
+                            }`}
+                          >
+                            {statusConfig[status]?.label || apt.status}
+                          </span>
+
+                          {/* مؤشر الفاتورة الأنيق */}
+                          {hasInvoice ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
+                              <Check className="w-3 h-3" />
+                              <span>
+                               (
+                                {parseFloat(
+                                  apt.invoice_total || 0
+                                ).toLocaleString("en-US")}{" "}
+                                ج.م)
+                              </span>
+                            </span>
+                          ) : status === "completed" ? (
+                            <span className="text-xs text-amber-400">
+                              ⏳ بدون فاتورة
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
 
                       {/* الإجراءات */}
@@ -627,11 +658,12 @@ export default function Appointments() {
                           {status === "scheduled" && (
                             <>
                               <button
-                                title="اكتمل الكشف"
+                                title="اكتمل الكشف (سيفتح نافذة الفاتورة والطباعة تلقائياً)"
                                 onClick={() =>
                                   updateStatusMutation.mutate({
                                     id: apt.id,
                                     status: "completed",
+                                    appointment: apt,
                                   })
                                 }
                                 className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -644,6 +676,7 @@ export default function Appointments() {
                                   updateStatusMutation.mutate({
                                     id: apt.id,
                                     status: "no_show",
+                                    appointment: apt,
                                   })
                                 }
                                 className="p-1.5 hover:bg-[var(--warning-bg)] text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -656,6 +689,7 @@ export default function Appointments() {
                                   updateStatusMutation.mutate({
                                     id: apt.id,
                                     status: "cancelled",
+                                    appointment: apt,
                                   })
                                 }
                                 className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -665,24 +699,60 @@ export default function Appointments() {
                             </>
                           )}
 
-                          {/* إعادة الجدولة */}
-                          <button
-                            title="إعادة جدولة الموعد"
-                            onClick={() =>
-                              setRescheduleData({
-                                isOpen: true,
-                                appointmentId: apt.id,
-                                patientName: apt.patient_name,
-                                currentDate: apt.appointment_date,
-                                newDate: getCurrentDateTimeLocal(),
-                              })
-                            }
-                            className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
+                          {/* إعادة الجدولة (متاحة لغير المكتمل) */}
+                          {status !== "completed" && (
+                            <button
+                              title="إعادة جدولة الموعد"
+                              onClick={() =>
+                                setRescheduleData({
+                                  isOpen: true,
+                                  appointmentId: apt.id,
+                                  patientName: apt.patient_name,
+                                  currentDate: apt.appointment_date,
+                                  newDate: getCurrentDateTimeLocal(),
+                                })
+                              }
+                              className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
+                          )}
 
-                          {/* 📲 زرار وقائمة الواتساب الذكية */}
+                          {/* 🖨️ زرار الفاتورة / الطباعة المباشرة */}
+                          {hasInvoice ? (
+                            <button
+                              title="طباعة الفاتورة 🖨️"
+                              disabled={printingInvoiceId === apt.invoice_id}
+                              onClick={() =>
+                                handlePrintExistingInvoice(apt.invoice_id)
+                              }
+                              className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                            >
+                              {printingInvoiceId === apt.invoice_id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Printer className="w-4 h-4" />
+                              )}
+                            </button>
+                          ) : (
+                            <button
+                              title="إصدار وطباعة فاتورة"
+                              onClick={() =>
+                                setInvoiceModal({
+                                  isOpen: true,
+                                  appointment: apt,
+                                  itemDescription: "كشف عيادة / استشارة",
+                                  itemPrice: "",
+                                  paidAmount: "",
+                                })
+                              }
+                              className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                            >
+                              <Receipt className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {/* 📲 زرار وقائمة الواتساب */}
                           <div>
                             <button
                               title="مراسلة المريض عبر واتساب"
@@ -693,16 +763,13 @@ export default function Appointments() {
                                   setWhatsAppMenuPosition(null);
                                   return;
                                 }
-
                                 const rect =
                                   e.currentTarget.getBoundingClientRect();
                                 const gap = 4;
-
                                 setWhatsAppMenuPosition({
                                   top: rect.bottom + gap,
                                   left: rect.left,
                                 });
-
                                 setActiveWhatsAppMenu(apt.id);
                               }}
                               className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors flex items-center justify-center"
@@ -800,47 +867,32 @@ export default function Appointments() {
                                         <span>تذكير بالموعد</span>
                                       </button>
                                     </>
-                                  ) : status === "cancelled" ? (
+                                  ) : (
                                     <div className="px-2.5 py-2 text-xs text-center text-[var(--text-muted)]">
-                                      الموعد ملغي - لا يمكن المراسلة
+                                      الموعد ملغي
                                     </div>
-                                  ) : null}
+                                  )}
                                 </div>,
                                 document.body
                               )}
                           </div>
 
-                          {/* تحويل لفاتورة */}
-                          <button
-                            title="تحويل الموعد إلى فاتورة فورية"
-                            onClick={() =>
-                              setInvoiceModal({
-                                isOpen: true,
-                                appointment: apt,
-                                itemDescription: "كشف عيادة / استشارة",
-                                itemPrice: "",
-                                paidAmount: "",
-                              })
-                            }
-                            className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                          >
-                            <Receipt className="w-4 h-4" />
-                          </button>
-
-                          {/* حذف الموعد */}
-                          <button
-                            title="حذف الموعد نهائياً"
-                            onClick={() =>
-                              setDeleteModal({
-                                isOpen: true,
-                                appointmentId: apt.id,
-                                patientName: apt.patient_name,
-                              })
-                            }
-                            className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* حذف الموعد (للـ ClinicAdmin فقط) */}
+                          {user?.role === "ClinicAdmin" && (
+                            <button
+                              title="حذف الموعد نهائياً"
+                              onClick={() =>
+                                setDeleteModal({
+                                  isOpen: true,
+                                  appointmentId: apt.id,
+                                  patientName: apt.patient_name,
+                                })
+                              }
+                              className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -870,14 +922,12 @@ export default function Appointments() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <p className="text-xs text-[var(--text-secondary)]">
               تعديل موعد المريض:{" "}
               <span className="font-semibold text-[var(--text-main)]">
                 {rescheduleData.patientName}
               </span>
             </p>
-
             <div>
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                 التاريخ والوقت الجديد *
@@ -896,7 +946,6 @@ export default function Appointments() {
                 className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
               />
             </div>
-
             <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
@@ -927,14 +976,14 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 🌟 نافذة تحويل الموعد إلى فاتورة فورية */}
+      {/* 🌟 نافذة تحويل الموعد إلى فاتورة فورية + طباعة */}
       {invoiceModal.isOpen && invoiceModal.appointment && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
               <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-[var(--primary-base)]" />
-                إصدار فاتورة من الموعد
+                <Printer className="w-5 h-5 text-[var(--primary-base)]" />
+                إصدار وطباعة فاتورة الكشف
               </h3>
               <button
                 onClick={() =>
@@ -945,7 +994,6 @@ export default function Appointments() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <div className="bg-[var(--bg-elevated)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-default)] space-y-1 text-xs">
               <p className="text-[var(--text-secondary)]">
                 المريض:{" "}
@@ -960,7 +1008,6 @@ export default function Appointments() {
                 </span>
               </p>
             </div>
-
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -971,7 +1018,6 @@ export default function Appointments() {
                   showToast("يرجى إدخال سعر صحيح للبند", "error");
                   return;
                 }
-
                 const payload = {
                   patient_id: invoiceModal.appointment.patient_id,
                   appointment_id: invoiceModal.appointment.id,
@@ -994,14 +1040,13 @@ export default function Appointments() {
                         }
                       : null,
                 };
-
                 convertToInvoiceMutation.mutate(payload);
               }}
               className="space-y-3.5"
             >
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                  وصف الخدمة / البند *
+                  وصف الخدمة / الإجراء *
                 </label>
                 <input
                   type="text"
@@ -1016,7 +1061,6 @@ export default function Appointments() {
                   className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                 />
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
@@ -1038,7 +1082,6 @@ export default function Appointments() {
                     className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     المدفوع الآن نقداً (ج.م)
@@ -1059,7 +1102,6 @@ export default function Appointments() {
                   />
                 </div>
               </div>
-
               <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
@@ -1073,11 +1115,19 @@ export default function Appointments() {
                 <button
                   type="submit"
                   disabled={convertToInvoiceMutation.isPending}
-                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {convertToInvoiceMutation.isPending
-                    ? "جاري الإصدار..."
-                    : "إصدار الفاتورة"}
+                  {convertToInvoiceMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الإصدار...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>إصدار وطباعة</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1085,7 +1135,7 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 🌟 التوست الموحد (مربوط بالـ Tokens مع شادو المودالز) */}
+      {/* 🌟 التوست الموحد */}
       {toast && (
         <div
           className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-btn)] shadow-elevation border text-sm font-medium transition-all ${
@@ -1120,7 +1170,6 @@ export default function Appointments() {
                 </p>
               </div>
             </div>
-
             <p className="text-sm text-[var(--text-secondary)]">
               هل أنت متأكد من حذف موعد المريض{" "}
               <span className="font-semibold text-[var(--text-main)]">
@@ -1128,7 +1177,6 @@ export default function Appointments() {
               </span>
               ؟
             </p>
-
             <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
@@ -1160,6 +1208,7 @@ export default function Appointments() {
         </div>
       )}
 
+      {/* 🌟 نافذة إعدادات مدة الكشف */}
       {durationSettingsOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-5">
@@ -1168,7 +1217,6 @@ export default function Appointments() {
                 <Clock className="w-5 h-5 text-[var(--primary-base)]" />
                 مدة الكشف الافتراضية
               </h3>
-
               <button
                 type="button"
                 onClick={() => setDurationSettingsOpen(false)}
@@ -1177,16 +1225,13 @@ export default function Appointments() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <div>
               <p className="text-xs text-[var(--text-secondary)] mb-3">
                 حدد المدة التي يتم استخدامها تلقائياً عند إنشاء حجز جديد.
               </p>
-
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                 مدة الكشف (بالدقائق)
               </label>
-
               <input
                 type="number"
                 min="5"
@@ -1195,7 +1240,6 @@ export default function Appointments() {
                 onChange={(e) => setDefaultDuration(e.target.value)}
                 className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
               />
-
               <div className="flex flex-wrap gap-2 mt-3">
                 {[15, 30, 45, 60].map((minutes) => (
                   <button
@@ -1212,12 +1256,10 @@ export default function Appointments() {
                   </button>
                 ))}
               </div>
-
               <p className="text-[10px] text-[var(--text-muted)] mt-2">
                 مسموح من 5 إلى 240 دقيقة.
               </p>
             </div>
-
             <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
               <button
                 type="button"
@@ -1226,13 +1268,11 @@ export default function Appointments() {
               >
                 إلغاء
               </button>
-
               <button
                 type="button"
                 disabled={updateDurationMutation.isPending}
                 onClick={() => {
                   const value = Number(defaultDuration);
-
                   if (!Number.isInteger(value) || value < 5 || value > 240) {
                     showToast(
                       "مدة الكشف يجب أن تكون بين 5 و240 دقيقة",
@@ -1240,7 +1280,6 @@ export default function Appointments() {
                     );
                     return;
                   }
-
                   updateDurationMutation.mutate(value);
                 }}
                 className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
@@ -1254,6 +1293,7 @@ export default function Appointments() {
         </div>
       )}
 
+      {/* المودال الموحد الذكي لحجز المواعيد */}
       <BookAppointmentModal
         isOpen={isBookModalOpen}
         onClose={() => setIsBookModalOpen(false)}

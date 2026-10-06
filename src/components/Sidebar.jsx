@@ -8,7 +8,8 @@ import {
   FlaskConical,
   LogOut,
   X,
-  UserCog, // 👈 أيقونة طاقم العمل والصلاحيات
+  UserCog,
+  Building2,
 } from "lucide-react";
 
 export default function Sidebar({ isMobileOpen, onCloseMobile }) {
@@ -25,6 +26,9 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     // 🌟 بند طاقم العمل يظهر فقط لمدير العيادة (ClinicAdmin)
     ...(user?.role === "ClinicAdmin"
       ? [{ name: "طاقم العمل", path: "/staff", icon: UserCog }]
+      : []),
+    ...(user?.role === "SuperAdmin"
+      ? [{ name: "إدارة العيادات", path: "/clinics", icon: Building2 }]
       : []),
   ];
 

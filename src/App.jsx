@@ -10,12 +10,13 @@ import Invoices from "./pages/Invoices.jsx";
 import LabOrders from "./pages/LabOrders";
 import PaymentStatus from "./pages/PaymentStatus";
 import Staff from "./pages/Staff";
+import Clinics from "./pages/Clinics";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-      <Route path="/payment-status" element={<PaymentStatus />} />
+        <Route path="/payment-status" element={<PaymentStatus />} />
         <Route path="/login" element={<Login />} />
 
         <Route
@@ -33,6 +34,14 @@ export default function App() {
           <Route path="invoices" element={<Invoices />} />
           <Route path="lab-orders" element={<LabOrders />} />
           <Route path="staff" element={<Staff />} />
+          <Route
+            path="clinics"
+            element={
+              <ProtectedRoute allowedRoles={["SuperAdmin"]}>
+                <Clinics />
+              </ProtectedRoute>
+            }
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
