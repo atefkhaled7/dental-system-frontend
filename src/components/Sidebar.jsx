@@ -10,6 +10,7 @@ import {
   X,
   UserCog,
   Building2,
+  ClipboardList,
 } from "lucide-react";
 
 export default function Sidebar({ isMobileOpen, onCloseMobile }) {
@@ -23,10 +24,14 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     { name: "المواعيد", path: "/appointments", icon: Calendar },
     { name: "الفواتير والمالية", path: "/invoices", icon: CreditCard },
     { name: "طلبات المعامل", path: "/lab-orders", icon: FlaskConical },
-    // 🌟 بند طاقم العمل يظهر فقط لمدير العيادة (ClinicAdmin)
+
     ...(user?.role === "ClinicAdmin"
-      ? [{ name: "طاقم العمل", path: "/staff", icon: UserCog }]
+      ? [
+          { name: "سجل الرقابة", path: "/audit-logs", icon: ClipboardList },
+          { name: "طاقم العمل", path: "/staff", icon: UserCog },
+        ]
       : []),
+
     ...(user?.role === "SuperAdmin"
       ? [{ name: "إدارة العيادات", path: "/clinics", icon: Building2 }]
       : []),
@@ -35,7 +40,11 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
   // دالة فحص الرابط النشط بذكاء (حتى مع الصفحات المتفرعة زي /patients/:id)
   const isRouteActive = (itemPath) => {
     if (itemPath === "/") return location.pathname === "/";
-    return location.pathname.startsWith(itemPath);
+
+    return (
+      location.pathname === itemPath ||
+      location.pathname.startsWith(`${itemPath}/`)
+    );
   };
 
   // ترجمة مسمى الرتبة بالعربي

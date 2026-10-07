@@ -1,16 +1,18 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Patients from "./pages/Patients";
-import PatientDetails from "./pages/PatientDetails"; // 👈 استدعاء الصفحة الجديدة
+import PatientDetails from "./pages/PatientDetails";
 import Appointments from "./pages/Appointments";
 import Invoices from "./pages/Invoices.jsx";
 import LabOrders from "./pages/LabOrders";
 import PaymentStatus from "./pages/PaymentStatus";
 import Staff from "./pages/Staff";
 import Clinics from "./pages/Clinics";
+import NotFound from "./pages/NotFound";
+import AuditLogs from "./pages/AuditLogs";
 
 export default function App() {
   return (
@@ -29,7 +31,7 @@ export default function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="patients" element={<Patients />} />
-          <Route path="patients/:id" element={<PatientDetails />} />{" "}
+          <Route path="patients/:id" element={<PatientDetails />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="lab-orders" element={<LabOrders />} />
@@ -42,9 +44,17 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="audit-logs"
+            element={
+              <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
+                <AuditLogs />
+              </ProtectedRoute>
+            }
+          />
         </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import { useAuth } from "../context/AuthContext";
 import {
   Users,
   UserPlus,
@@ -17,9 +18,41 @@ import {
   Loader2,
   Check,
   ChevronLeft,
+  Download,
 } from "lucide-react";
 
 export default function Patients() {
+  const { user } = useAuth();
+  // دالة التحميل المباشرة:
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportPatients = async () => {
+    try {
+      setIsExporting(true);
+      const res = await api.get("/patients/export", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `patients_${new Date().toISOString().split("T")[0]}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    } catch (err) {
+      showToast(
+        err.response?.data?.error || "فشل تصدير بيانات المرضى",
+        "error"
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const [page, setPage] = useState(1);
   const limit = 10; // عدد العناصر في الصفحة
 
@@ -152,17 +185,37 @@ export default function Patients() {
             <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--primary-base)]" />
             سجل المرضى
           </h1>
+
           <p className="text-[var(--text-secondary)] text-xs sm:text-sm mt-1">
             إدارة ملفات المرضى وتاريخهم الطبي والخطط العلاجية
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors shadow-md shadow-[var(--primary-base)]/20"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>إضافة مريض جديد</span>
-        </button>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          {user?.role === "ClinicAdmin" && (
+            <button
+              onClick={handleExportPatients}
+              disabled={isExporting}
+              className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors disabled:opacity-50"
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--primary-base)]" />
+              ) : (
+                <Download className="w-4 h-4 text-[var(--primary-base)]" />
+              )}
+
+              <span>تصدير Excel</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors shadow-md shadow-[var(--primary-base)]/20"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>إضافة مريض جديد</span>
+          </button>
+        </div>
       </div>
 
       {/* 🌟 شريط البحث وتصفية الأرشيف */}

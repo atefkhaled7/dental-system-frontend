@@ -12,6 +12,7 @@ import {
   CreditCard,
   Plus,
   Search,
+  Download,
   Receipt,
   DollarSign,
   Check,
@@ -83,6 +84,41 @@ export function PaymentStatusBadge({ status }) {
 export default function Invoices() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportInvoices = async () => {
+    try {
+      setIsExporting(true);
+
+      const res = await api.get("/invoices/export", {
+        responseType: "blob",
+      });
+
+      const url = window.URL.createObjectURL(
+        new Blob([res.data], { type: "text/csv;charset=utf-8;" })
+      );
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `financial_report_${new Date().toISOString().split("T")[0]}.csv`
+      );
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    } catch (err) {
+      alert("فشل تصدير التقرير المالي");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // 1. State الفلاتر والـ Pagination لجدول الفواتير
   const [page, setPage] = useState(1);
@@ -503,21 +539,40 @@ export default function Invoices() {
             <CreditCard className="w-7 h-7 text-[#0D9488]" />
             الفواتير والمالية
           </h1>
+
           <p className="text-[#94A3B8] text-sm mt-1">
             إصدار الفواتير وتحصيل المدفوعات النقدية والإلكترونية
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setInvoiceForm(defaultInvoiceState);
-            setIsCreateModalOpen(true);
-          }}
-          className="flex items-center justify-center gap-2 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] px-5 py-2.5 rounded-md font-medium text-[13px] transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>إنشاء فاتورة جديدة</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          {user?.role === "ClinicAdmin" && (
+            <button
+              onClick={handleExportInvoices}
+              disabled={isExporting}
+              className="flex items-center justify-center gap-2 bg-[#111827] hover:bg-[#172033] border border-[#243047] text-[#94A3B8] hover:text-[#F8FAFC] px-4 py-2.5 rounded-md text-[13px] font-medium transition-colors disabled:opacity-50"
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[#0D9488]" />
+              ) : (
+                <Download className="w-4 h-4 text-[#0D9488]" />
+              )}
+
+              <span>تصدير التقرير المالي 📊</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setInvoiceForm(defaultInvoiceState);
+              setIsCreateModalOpen(true);
+            }}
+            className="flex items-center justify-center gap-2 bg-[#0D9488] hover:bg-[#0F766E] text-[#F8FAFC] px-5 py-2.5 rounded-md font-medium text-[13px] transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>إنشاء فاتورة جديدة</span>
+          </button>
+        </div>
       </div>
 
       {/* شريط الفلاتر والبحث */}
