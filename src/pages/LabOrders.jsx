@@ -1,5 +1,10 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import api from "../api/axios";
 import {
   FlaskConical,
@@ -20,6 +25,10 @@ export default function LabOrders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedLabFilter, setSelectedLabFilter] = useState("");
+
+  // Pagination المعامل
+  const [page, setPage] = useState(1);
+  const limit = 10;
 
   // النوافذ
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -45,21 +54,37 @@ export default function LabOrders() {
 
   const [formData, setFormData] = useState(defaultFormState);
 
-  // 1. جلب طلبات المعمل
-  const { data: labOrders = [], isLoading } = useQuery({
-    queryKey: ["labOrders", statusFilter, selectedLabFilter, searchTerm],
+  // 1. جلب طلبات المعمل مع الـ Pagination
+  const { data, isLoading } = useQuery({
+    queryKey: [
+      "labOrders",
+      { page, limit, statusFilter, selectedLabFilter, searchTerm },
+    ],
     queryFn: async () => {
       const res = await api.get("/lab-orders", {
         params: {
-          status:
-            statusFilter === "late" ? undefined : statusFilter || undefined,
+          page,
+          limit,
+          status: statusFilter || undefined, // إرسال late للباك إند مباشرة
           lab_name: selectedLabFilter || undefined,
-          search: searchTerm || undefined,
+          search: searchTerm.trim() || undefined,
         },
       });
-      return res.data.lab_orders || [];
+      return res.data;
     },
+    placeholderData: keepPreviousData,
   });
+
+  const labOrders = data?.lab_orders || [];
+  const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
+  const displayedOrders = labOrders;
+
+  // لو المستخدم في صفحة أعلى من 1 والصفحة فضيت، يرجع تلقائياً للصفحة السابقة
+  useEffect(() => {
+    if (!isLoading && page > 1 && labOrders.length === 0) {
+      setPage((p) => Math.max(1, p - 1));
+    }
+  }, [isLoading, page, labOrders.length]);
 
   // 2. جلب المرضى
   const { data: patients = [] } = useQuery({
@@ -150,16 +175,15 @@ export default function LabOrders() {
     return null;
   };
 
-  const displayedOrders = labOrders.filter((order) => {
-    if (statusFilter === "late") {
-      return getDelayInfo(order) !== null;
-    }
-    return true;
+  // جلب كل أسامي المعامل للعيادة بغض النظر عن الصفحة
+  const { data: labsData } = useQuery({
+    queryKey: ["distinct-labs"],
+    queryFn: async () => {
+      const res = await api.get("/lab-orders/labs");
+      return res.data.labs || [];
+    },
   });
-
-  const uniqueLabs = [
-    ...new Set(labOrders.map((o) => o.lab_name).filter(Boolean)),
-  ];
+  const uniqueLabs = labsData || [];
 
   const handleOpenDetails = (order) => {
     setSelectedOrder(order);
@@ -262,7 +286,10 @@ export default function LabOrders() {
             type="text"
             placeholder="بحث بالمريض، #Case، أو المعمل..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
             className="w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pr-10 pl-4 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
           />
         </div>
@@ -272,7 +299,10 @@ export default function LabOrders() {
           {uniqueLabs.length > 0 && (
             <select
               value={selectedLabFilter}
-              onChange={(e) => setSelectedLabFilter(e.target.value)}
+              onChange={(e) => {
+                setSelectedLabFilter(e.target.value);
+                setPage(1);
+              }}
               className="bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] focus:text-[var(--text-main)] text-xs rounded-[var(--radius-btn)] px-3 py-2 focus:outline-none focus:border-[var(--border-focus)] transition-colors cursor-pointer"
             >
               <option value="">جميع المعامل</option>
@@ -295,7 +325,10 @@ export default function LabOrders() {
             ].map((tab) => (
               <button
                 key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
+                onClick={() => {
+                  setStatusFilter(tab.value);
+                  setPage(1);
+                }}
                 className={`px-3 py-1.5 rounded-[var(--radius-btn)] text-xs font-medium whitespace-nowrap transition-colors border ${
                   statusFilter === tab.value
                     ? tab.highlight
@@ -346,23 +379,25 @@ export default function LabOrders() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
+            <table className="w-full text-right text-xs table-fixed">
               <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
                 <tr>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3 px-3.5 font-medium text-xs w-[16%]">
                     رقم الحالة (#Case)
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">المريض</th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3 px-3.5 font-medium text-xs w-[20%]">
+                    المريض
+                  </th>
+                  <th className="py-3 px-3.5 font-medium text-xs w-[18%]">
                     المعمل والبرنامج
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3 px-3.5 font-medium text-xs w-[19%]">
                     التاريخ والتأخير
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3 px-3.5 font-medium text-xs w-[13%]">
                     حالة الطلب
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs text-center">
+                  <th className="py-3 px-3.5 font-medium text-xs text-center w-[14%]">
                     تغيير الحالة
                   </th>
                 </tr>
@@ -370,7 +405,6 @@ export default function LabOrders() {
               <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
                 {displayedOrders.map((order) => {
                   const delayDays = getDelayInfo(order);
-
                   return (
                     <tr
                       key={order.id}
@@ -378,47 +412,56 @@ export default function LabOrders() {
                       onClick={() => handleOpenDetails(order)}
                     >
                       {/* رقم الحالة */}
-                      <td className="py-3.5 px-5">
-                        <span className="font-mono font-medium text-[var(--primary-base)] bg-[var(--primary-muted)] px-2.5 py-0.5 rounded-[var(--radius-btn)] border border-[var(--primary-base)]/20 text-xs">
+                      <td className="py-3 px-3.5">
+                        <span
+                          className="font-mono font-medium text-[var(--primary-base)] bg-[var(--primary-muted)] px-2 py-0.5 rounded-[var(--radius-btn)] border border-[var(--primary-base)]/20 text-xs inline-block truncate max-w-[110px]"
+                          title={order.case_number}
+                        >
                           {order.case_number || "بدون كود"}
                         </span>
                         {order.notes && (
-                          <p className="text-xs text-[var(--text-muted)] mt-1 max-w-xs truncate">
+                          <p
+                            className="text-[11px] text-[var(--text-muted)] mt-1 truncate max-w-[140px]"
+                            title={order.notes}
+                          >
                             {order.notes}
                           </p>
                         )}
                       </td>
-
                       {/* المريض والطبيب */}
-                      <td className="py-3.5 px-5">
-                        <p className="font-semibold text-[var(--text-main)]">
+                      <td className="py-3 px-3.5">
+                        <p
+                          className="font-semibold text-[var(--text-main)] truncate"
+                          title={order.patient_name}
+                        >
                           {order.patient_name}
                         </p>
-                        <span className="text-xs text-[var(--text-muted)]">
+                        <span className="text-[11px] text-[var(--text-muted)] block truncate">
                           د. {order.doctor_name}
                         </span>
                       </td>
-
                       {/* المعمل والبرنامج */}
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-1.5 text-[var(--text-main)] font-medium text-xs">
-                          <Building2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                          <span>{order.lab_name}</span>
+                      <td className="py-3 px-3.5">
+                        <div className="flex items-center gap-1.5 text-[var(--text-main)] font-medium text-xs truncate">
+                          <Building2 className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
+                          <span className="truncate">{order.lab_name}</span>
                         </div>
-                        <span className="text-[11px] text-[var(--text-muted)] font-mono mt-0.5 block">
+                        <span className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5 block truncate">
                           {order.design_software || "Exocad"}
                         </span>
                       </td>
-
                       {/* التاريخ مع شارة التأخير */}
-                      <td className="py-3.5 px-5 text-xs font-mono">
-                        <div className="text-[var(--text-secondary)]" dir="ltr">
+                      <td className="py-3 px-3.5 text-xs font-mono">
+                        <div
+                          className="text-[var(--text-secondary)] text-[11px]"
+                          dir="ltr"
+                        >
                           أُرسل:{" "}
                           {new Date(order.sent_at).toLocaleDateString("en-GB")}
                         </div>
                         {order.expected_at && (
                           <div
-                            className="text-[var(--text-muted)] mt-0.5"
+                            className="text-[var(--text-muted)] text-[10px] mt-0.5"
                             dir="ltr"
                           >
                             متوقع:{" "}
@@ -429,17 +472,16 @@ export default function LabOrders() {
                         )}
                         {/* ⚠️ شارة التأخير */}
                         {delayDays && (
-                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-[var(--radius-pill)] bg-[var(--danger-bg)] text-[var(--danger-text)] border border-[var(--danger-text)]/20 text-[11px] font-medium">
-                            <AlertTriangle className="w-3 h-3" />
+                          <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-[var(--radius-pill)] bg-[var(--danger-bg)] text-[var(--danger-text)] border border-[var(--danger-text)]/20 text-[10px] font-medium">
+                            <AlertTriangle className="w-3 h-3 shrink-0" />
                             متأخر {delayDays} {delayDays === 1 ? "يوم" : "أيام"}
                           </span>
                         )}
                       </td>
-
                       {/* بادج الحالة الحالية */}
-                      <td className="py-3.5 px-5">
+                      <td className="py-3 px-3.5">
                         <span
-                          className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium border whitespace-nowrap ${
+                          className={`inline-block px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium border whitespace-nowrap ${
                             statusConfig[order.status]?.color ||
                             "bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border-default)]"
                           }`}
@@ -447,10 +489,9 @@ export default function LabOrders() {
                           {statusConfig[order.status]?.label || order.status}
                         </span>
                       </td>
-
                       {/* Dropdown تغيير الحالة السريع */}
                       <td
-                        className="py-3.5 px-5 text-center"
+                        className="py-3 px-3.5 text-center"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <select
@@ -462,13 +503,11 @@ export default function LabOrders() {
                               status: e.target.value,
                             })
                           }
-                          className="bg-[var(--bg-elevated)] border border-[var(--border-default)] text-xs text-[var(--text-secondary)] focus:text-[var(--text-main)] rounded-[var(--radius-btn)] px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-focus)] cursor-pointer transition-colors"
+                          className="w-full max-w-[125px] bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[11px] text-[var(--text-secondary)] focus:text-[var(--text-main)] rounded-[var(--radius-btn)] px-2 py-1 focus:outline-none focus:border-[var(--border-focus)] cursor-pointer transition-colors"
                         >
                           <option value="sent_to_lab">عند المعمل</option>
                           <option value="ready">جاهز للاستلام 📦</option>
-                          <option value="received">
-                            تم الاستلام بالعيادة ✅
-                          </option>
+                          <option value="received">تم الاستلام ✅</option>
                           <option value="cancelled">إلغاء الطلب 🚫</option>
                         </select>
                       </td>
@@ -479,8 +518,51 @@ export default function LabOrders() {
             </table>
           </div>
         )}
-      </div>
 
+        {/* 🌟 شريط الـ Pagination الموحد (الزراير على اليمين في الـ RTL) */}
+        {!isLoading && pagination.total > 0 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
+            {/* 1. الزراير على اليمين */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                السابق
+              </button>
+              <span className="text-xs text-[var(--text-secondary)] px-2">
+                صفحة <span className="font-bold text-teal-400">{page}</span> من{" "}
+                <span className="font-bold text-[var(--text-main)]">
+                  {pagination.totalPages}
+                </span>
+              </span>
+              <button
+                onClick={() =>
+                  setPage((p) => Math.min(pagination.totalPages, p + 1))
+                }
+                disabled={page >= pagination.totalPages}
+                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                التالي
+              </button>
+            </div>
+
+            {/* 2. عرض الإجمالي على الشمال */}
+            <div className="text-xs">
+              عرض{" "}
+              <span className="font-bold text-[var(--text-main)]">
+                {displayedOrders.length}
+              </span>{" "}
+              من أصل{" "}
+              <span className="font-bold text-[var(--text-main)]">
+                {pagination.total}
+              </span>{" "}
+              طلب
+            </div>
+          </div>
+        )}
+      </div>
       {/* 🌟 نافذة تفاصيل وتعديل الحالة */}
       {isDetailsModalOpen && selectedOrder && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">

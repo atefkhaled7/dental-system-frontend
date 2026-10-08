@@ -9,7 +9,7 @@ export const escapeHtml = (str) => {
     .replace(/'/g, "&#039;");
 };
 
-export const printInvoice = (inv) => {
+export const printInvoice = (inv, clinic = {}) => {
   if (!inv) return false;
 
   const printWindow = window.open("", "_blank", "width=850,height=900");
@@ -21,11 +21,25 @@ export const printInvoice = (inv) => {
     return false;
   }
 
+  // بيانات العيادة الحالية
+  const rawClinicName =
+    inv.clinic_name || clinic.name || "عيادة طب وجراحة الأسنان";
+
+  const rawClinicPhone = inv.clinic_phone || clinic.phone || "";
+
+  const rawClinicAddress = inv.clinic_address || clinic.address || "";
+
+  const safeClinicName = escapeHtml(rawClinicName);
+  const safeClinicPhone = escapeHtml(rawClinicPhone);
+  const safeClinicAddress = escapeHtml(rawClinicAddress);
+
+  // بيانات الفاتورة
   const safePatientName = escapeHtml(inv.patient_name);
   const safePatientPhone = escapeHtml(inv.patient_phone || "-");
   const safeDoctorName = escapeHtml(inv.doctor_name || "كشف عام");
   const safeInvoiceId = escapeHtml(inv.id);
 
+  // حالة الفاتورة
   const safeStatus =
     inv.status === "paid"
       ? "مدفوعة بالكامل"
@@ -35,11 +49,43 @@ export const printInvoice = (inv) => {
       ? "ملغاة"
       : "غير مدفوعة";
 
+  // تاريخ الفاتورة بتوقيت القاهرة
+  const invoiceDate = new Date(inv.created_at);
+
+  const formattedInvoiceDate = Number.isNaN(invoiceDate.getTime())
+    ? "-"
+    : invoiceDate.toLocaleDateString("en-GB", {
+        timeZone: "Africa/Cairo",
+      });
+
+  // التأكد أن items عبارة عن Array
+  const invoiceItems =
+    Array.isArray(inv.items) && inv.items.length > 0
+      ? inv.items
+      : [
+          {
+            description: "كشف وعلاج أسنان",
+            quantity: 1,
+            unit_price: inv.total_amount,
+            total_price: inv.total_amount,
+          },
+        ];
+
+  // بيانات الأرقام
+  const totalAmount = Number(inv.total_amount) || 0;
+  const paidAmount = Number(inv.paid_amount) || 0;
+  const remainingAmount = Number(inv.remaining_amount) || 0;
+
   printWindow.document.write(`
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
       <head>
         <meta charset="utf-8" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0"
+        />
+
         <title>فاتورة علاج #${safeInvoiceId}</title>
 
         <style>
@@ -60,8 +106,15 @@ export const printInvoice = (inv) => {
           .clinic-name {
             font-size: 26px;
             font-weight: bold;
-            color: #1e3a8a;
+            color: #0f766e;
             margin-bottom: 4px;
+          }
+
+          .clinic-contact {
+            font-size: 13px;
+            color: #475569;
+            margin-bottom: 8px;
+            font-weight: 500;
           }
 
           .sub {
@@ -119,7 +172,7 @@ export const printInvoice = (inv) => {
           .total {
             font-weight: bold;
             font-size: 17px;
-            color: #1e3a8a;
+            color: #0f766e;
             border-top: 2px solid #0f172a;
             border-bottom: none;
             padding-top: 10px;
@@ -133,29 +186,76 @@ export const printInvoice = (inv) => {
             color: #94a3b8;
             border-top: 1px solid #e2e8f0;
             padding-top: 20px;
+            line-height: 1.6;
+          }
+
+          .branding {
+            font-size: 10px;
+            color: #cbd5e1;
+            margin-top: 6px;
+          }
+
+          @media print {
+            body {
+              padding: 20px;
+            }
           }
         </style>
       </head>
 
       <body>
         <div class="header">
-          <div class="clinic-name">عيادة الأسنان التخصصية</div>
+          <div class="clinic-name">
+            ${safeClinicName}
+          </div>
+
+          ${
+            safeClinicPhone || safeClinicAddress
+              ? `
+                <div class="clinic-contact">
+                  ${
+                    safeClinicPhone
+                      ? `<span>هاتف / واتساب: ${safeClinicPhone}</span>`
+                      : ""
+                  }
+
+                  ${safeClinicPhone && safeClinicAddress ? " • " : ""}
+
+                  ${
+                    safeClinicAddress
+                      ? `<span>العنوان: ${safeClinicAddress}</span>`
+                      : ""
+                  }
+                </div>
+              `
+              : ""
+          }
 
           <div class="sub">
-            فاتورة علاج رقم #${safeInvoiceId} • بتاريخ
-            ${new Date(inv.created_at).toLocaleDateString("en-GB")}
+            فاتورة علاج رقم #${safeInvoiceId}
+            • بتاريخ ${formattedInvoiceDate}
           </div>
         </div>
 
         <div class="meta-box">
           <div>
-            <strong>اسم المريض:</strong> ${safePatientName}<br/>
-            <strong>رقم الهاتف:</strong> ${safePatientPhone}<br/>
+            <strong>اسم المريض:</strong>
+            ${safePatientName}
+            <br />
+
+            <strong>رقم الهاتف:</strong>
+            ${safePatientPhone}
+            <br />
           </div>
 
           <div>
-            <strong>الطبيب المعالج:</strong> د. ${safeDoctorName}<br/>
-            <strong>حالة الفاتورة:</strong> ${safeStatus}<br/>
+            <strong>الطبيب المعالج:</strong>
+            د. ${safeDoctorName}
+            <br />
+
+            <strong>حالة الفاتورة:</strong>
+            ${safeStatus}
+            <br />
           </div>
         </div>
 
@@ -163,46 +263,52 @@ export const printInvoice = (inv) => {
           <thead>
             <tr>
               <th>البند / الخدمة</th>
-              <th style="text-align: center;">الكمية</th>
-              <th style="text-align: left;">سعر الوحدة</th>
-              <th style="text-align: left;">الإجمالي</th>
+              <th style="text-align: center;">
+                الكمية
+              </th>
+              <th style="text-align: left;">
+                سعر الوحدة
+              </th>
+              <th style="text-align: left;">
+                الإجمالي
+              </th>
             </tr>
           </thead>
 
           <tbody>
-            ${(
-              inv.items || [
-                {
-                  description: "كشف وعلاج أسنان",
-                  quantity: 1,
-                  unit_price: inv.total_amount,
-                  total_price: inv.total_amount,
-                },
-              ]
-            )
-              .map(
-                (it) => `
+            ${invoiceItems
+              .map((it) => {
+                const quantity = Number(it.quantity) || 1;
+
+                const unitPrice = Number(it.unit_price) || 0;
+
+                const totalPrice = Number(it.total_price) || 0;
+
+                return `
                   <tr>
-                    <td>${escapeHtml(it.description)}</td>
+                    <td>
+                      ${escapeHtml(it.description || "-")}
+                    </td>
 
                     <td style="text-align: center;">
-                      ${Number(it.quantity) || 1}
+                      ${quantity}
                     </td>
 
                     <td style="text-align: left;">
-                      ${parseFloat(it.unit_price || 0).toLocaleString(
-                        "en-US"
-                      )} ج.م
+                      ${unitPrice.toLocaleString("en-US")} ج.م
                     </td>
 
-                    <td style="text-align: left; font-weight: bold;">
-                      ${parseFloat(it.total_price || 0).toLocaleString(
-                        "en-US"
-                      )} ج.م
+                    <td
+                      style="
+                        text-align: left;
+                        font-weight: bold;
+                      "
+                    >
+                      ${totalPrice.toLocaleString("en-US")} ج.م
                     </td>
                   </tr>
-                `
-              )
+                `;
+              })
               .join("")}
           </tbody>
         </table>
@@ -212,38 +318,49 @@ export const printInvoice = (inv) => {
             <span>إجمالي الفاتورة:</span>
 
             <span>
-              ${parseFloat(inv.total_amount || 0).toLocaleString("en-US")} ج.م
+              ${totalAmount.toLocaleString("en-US")} ج.م
             </span>
           </div>
 
-          <div class="summary-row" style="color: #059669;">
+          <div
+            class="summary-row"
+            style="color: #059669;"
+          >
             <span>المدفوع:</span>
 
             <span>
-              ${parseFloat(inv.paid_amount || 0).toLocaleString("en-US")} ج.م
+              ${paidAmount.toLocaleString("en-US")} ج.م
             </span>
           </div>
 
-          <div class="summary-row total" style="color: #dc2626;">
+          <div
+            class="summary-row total"
+            style="color: #dc2626;"
+          >
             <span>المتبقي:</span>
 
             <span>
-              ${parseFloat(inv.remaining_amount || 0).toLocaleString(
-                "en-US"
-              )} ج.م
+              ${remainingAmount.toLocaleString("en-US")} ج.م
             </span>
           </div>
         </div>
 
         <div class="footer">
-          نتمنى لكم دوام الصحة والعافية • نسعد دائماً بخدمتكم
+          <div>
+            نتمنى لكم دوام الصحة والعافية •
+            نسعد دائماً بخدمتكم
+          </div>
+
+          <div class="branding">
+            تم الإصدار عبر منصة CUROSTA لإدارة العيادات
+          </div>
         </div>
 
         <script>
-          window.onload = function() {
+          window.onload = function () {
             window.print();
             window.close();
-          }
+          };
         </script>
       </body>
     </html>

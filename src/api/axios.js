@@ -10,9 +10,15 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    if (config.data instanceof FormData) {
+      delete config.headers["Content-Type"];
+    }
+
     return config;
   },
   (error) => {
@@ -27,6 +33,20 @@ api.interceptors.response.use(
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+
+    if (error.response?.status === 403) {
+      const errorMessage =
+        error.response.data?.error ||
+        "تم رفض الوصول لعدم وجود صلاحية أو انتهاء الاشتراك";
+
+      // لو انتهاء اشتراك أو إيقاف حساب نخرجه بهدوء بعد تنبيهه
+      if (errorMessage.includes("اشتراك") || errorMessage.includes("إيقاف")) {
+        alert(errorMessage);
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
         window.location.href = "/login";
       }
     }

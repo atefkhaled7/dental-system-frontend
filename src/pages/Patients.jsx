@@ -19,6 +19,8 @@ import {
   Check,
   ChevronLeft,
   Download,
+  Upload,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export default function Patients() {
@@ -50,6 +52,56 @@ export default function Patients() {
       );
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // 🌟 حالات مودال الاستيراد
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
+  // دالة تحميل قالب CSV تجريبي للمستخدم
+  const handleDownloadSampleCsv = () => {
+    const sampleContent =
+      "\uFEFFاسم المريض,رقم الهاتف,النوع,تاريخ الميلاد,التنبيهات الطبية\n" +
+      "أحمد محمد علي,01012345678,ذكر,1990-05-15,حساسية بنسلين\n" +
+      "سارة محمود,01123456789,أنثى,1995-10-20,مريضة سكر\n" +
+      "عمر خالد,01234567890,ذكر,,لا يوجد\n";
+
+    const blob = new Blob([sampleContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "curosta_patients_template.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // دالة رفع واستيراد الملف
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    if (!importFile) {
+      showToast("يرجى اختيار ملف CSV أولاً", "error");
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      const formData = new FormData();
+      formData.append("file", importFile);
+
+      const res = await api.post("/patients/import", formData);
+
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      setImportResult(res.data);
+      showToast(res.data.message || "تم استيراد المرضى بنجاح", "success");
+    } catch (err) {
+      showToast(err.response?.data?.error || "فشل استيراد الملف", "error");
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -193,19 +245,32 @@ export default function Patients() {
 
         <div className="flex flex-col sm:flex-row gap-2">
           {user?.role === "ClinicAdmin" && (
-            <button
-              onClick={handleExportPatients}
-              disabled={isExporting}
-              className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors disabled:opacity-50"
-            >
-              {isExporting ? (
-                <Loader2 className="w-4 h-4 animate-spin text-[var(--primary-base)]" />
-              ) : (
-                <Download className="w-4 h-4 text-[var(--primary-base)]" />
-              )}
+            <>
+              <button
+                onClick={() => {
+                  setImportFile(null);
+                  setImportResult(null);
+                  setIsImportModalOpen(true);
+                }}
+                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3.5 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
+              >
+                <Upload className="w-4 h-4 text-teal-400" />
+                <span>استيراد CSV</span>
+              </button>
 
-              <span>تصدير Excel</span>
-            </button>
+              <button
+                onClick={handleExportPatients}
+                disabled={isExporting}
+                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3.5 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors disabled:opacity-50"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--primary-base)]" />
+                ) : (
+                  <Download className="w-4 h-4 text-[var(--primary-base)]" />
+                )}
+                <span>تصدير بيانات المرضي</span>
+              </button>
+            </>
           )}
 
           <button
@@ -488,6 +553,161 @@ export default function Patients() {
             من أصل{" "}
             <span className="font-bold text-slate-200">{pagination.total}</span>{" "}
             مريض
+          </div>
+        </div>
+      )}
+      {/* 🌟 نافذة استيراد المرضى مع تقرير الأخطاء */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-xl w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
+              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
+                <Upload className="w-5 h-5 text-teal-400" />
+                استيراد المرضى من ملف CSV
+              </h3>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {!importResult ? (
+              <form onSubmit={handleImportSubmit} className="space-y-4">
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  يمكنك استيراد قاعدة بيانات المرضى الحالية دفعة واحدة. تأكد أن
+                  الملف بصيغة{" "}
+                  <span className="font-mono text-teal-400 font-bold">
+                    .csv
+                  </span>{" "}
+                  ويحتوي على الأعمدة المطلوبة.
+                </p>
+
+                {/* زر تحميل القالب */}
+                <div className="bg-[var(--bg-elevated)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-default)] flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                    <span>تحميل نموذج ملف فارغ وجاهز للتعبئة:</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSampleCsv}
+                    className="text-xs text-teal-400 hover:underline font-semibold"
+                  >
+                    تحميل القالب (.csv)
+                  </button>
+                </div>
+
+                {/* مكان اختيار الملف */}
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+                    اختر ملف CSV *
+                  </label>
+                  <input
+                    type="file"
+                    required
+                    accept=".csv,text/csv"
+                    onChange={(e) => setImportFile(e.target.files[0] || null)}
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2 text-xs text-[var(--text-main)] file:mr-2 file:py-1.5 file:px-3 file:rounded-[var(--radius-btn)] file:border-0 file:text-xs file:font-semibold file:bg-teal-500/10 file:text-teal-400 hover:file:bg-teal-500/20 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
+                  <button
+                    type="button"
+                    onClick={() => setIsImportModalOpen(false)}
+                    className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isImporting || !importFile}
+                    className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>جاري المعالجة والاستيراد...</span>
+                      </>
+                    ) : (
+                      <span>بدء الاستيراد</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* عرض تقرير الاستيراد */
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-3 bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] border border-[var(--border-default)]">
+                    <p className="text-[var(--text-muted)] mb-1">
+                      إجمالي الصفوف
+                    </p>
+                    <p className="text-base font-bold text-slate-100">
+                      {importResult.summary?.total_rows || 0}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-emerald-500/10 rounded-[var(--radius-btn)] border border-emerald-500/20">
+                    <p className="text-emerald-400 mb-1">تم بنجاح ✅</p>
+                    <p className="text-base font-bold text-emerald-400">
+                      {importResult.summary?.imported_count || 0}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-rose-500/10 rounded-[var(--radius-btn)] border border-rose-500/20">
+                    <p className="text-rose-400 mb-1">تم تخطيهم ⚠️</p>
+                    <p className="text-base font-bold text-rose-400">
+                      {importResult.summary?.skipped_count || 0}
+                    </p>
+                  </div>
+                </div>
+
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-bold text-rose-400 mb-2">
+                      تفاصيل الصفوف التي بها مشاكل ولم يتم استيرادها:
+                    </h4>
+                    <div className="max-h-48 overflow-y-auto border border-slate-800 rounded-[var(--radius-btn)] bg-slate-900/60 divide-y divide-slate-800 text-xs">
+                      {importResult.errors.map((err, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 flex items-center justify-between gap-2"
+                        >
+                          <div>
+                            <span className="text-teal-400 font-bold ml-1.5">
+                              صف {err.row}:
+                            </span>
+                            <span className="text-slate-200">
+                              {err.name || "بدون اسم"}
+                            </span>
+                            <span className="text-slate-500 font-mono text-[11px] mr-2">
+                              ({err.phone})
+                            </span>
+                          </div>
+                          <span className="text-rose-400 text-[11px] bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 whitespace-nowrap">
+                            {err.reason}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-[var(--border-default)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsImportModalOpen(false);
+                      setImportResult(null);
+                    }}
+                    className="w-full bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                  >
+                    إغلاق وتحديث القائمة
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

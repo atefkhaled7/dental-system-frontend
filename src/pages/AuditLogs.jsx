@@ -8,8 +8,6 @@ import {
   User,
   Calendar,
   Clock,
-  ArrowRight,
-  ArrowLeft,
   RefreshCw,
   FileText,
   CreditCard,
@@ -20,7 +18,6 @@ import {
   Archive,
   RefreshCcw,
 } from "lucide-react";
-
 // Mapping عربي موحد لجميع العمليات الحالية في النظام
 const ACTION_CONFIG = {
   // المرضى
@@ -44,10 +41,25 @@ const ACTION_CONFIG = {
     color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
     icon: RefreshCcw,
   },
+  EXPORT_PATIENTS: {
+    label: "تصدير قاعدة بيانات المرضى",
+    color: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    icon: FileText,
+  },
 
   // الفواتير والمدفوعات
+  CREATE_INVOICE: {
+    label: "إنشاء فاتورة جديدة",
+    color: "text-teal-400 bg-teal-500/10 border-teal-500/20",
+    icon: FileText,
+  },
   RECORD_PAYMENT: {
     label: "تحصيل دفعة",
+    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    icon: CreditCard,
+  },
+  ONLINE_PAYMENT_CONFIRMED: {
+    label: "دفع إلكتروني معتمد (Paymob)",
     color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
     icon: CreditCard,
   },
@@ -60,6 +72,11 @@ const ACTION_CONFIG = {
     label: "أرشفة فاتورة",
     color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
     icon: Archive,
+  },
+  EXPORT_INVOICES: {
+    label: "تصدير تقرير الفواتير المالي",
+    color: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    icon: FileText,
   },
 
   // المواعيد
@@ -85,6 +102,60 @@ const ACTION_CONFIG = {
   },
   DELETE_APPOINTMENT: {
     label: "حذف موعد نهائياً",
+    color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
+    icon: Ban,
+  },
+
+  // المعامل والصور الطبية
+  CREATE_LAB_ORDER: {
+    label: "إنشاء طلب معمل",
+    color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+    icon: FileText,
+  },
+  UPDATE_LAB_ORDER_STATUS: {
+    label: "تحديث حالة طلب معمل",
+    color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+    icon: RefreshCw,
+  },
+  UPLOAD_PATIENT_IMAGE: {
+    label: "رفع صورة طبية / أشعة",
+    color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+    icon: FileText,
+  },
+  ARCHIVE_PATIENT_IMAGE: {
+    label: "أرشفة صورة طبية",
+    color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
+    icon: Ban,
+  },
+
+  // المستخدمين والأمان
+  CHANGE_PASSWORD: {
+    label: "تغيير كلمة المرور",
+    color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    icon: RefreshCw,
+  },
+  ENABLE_STAFF: {
+    label: "تفعيل حساب موظف",
+    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    icon: UserCheck,
+  },
+  DISABLE_STAFF: {
+    label: "إيقاف حساب موظف",
+    color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
+    icon: Ban,
+  },
+  RESET_STAFF_PASSWORD: {
+    label: "إعادة تعيين كلمة مرور",
+    color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    icon: RefreshCw,
+  },
+  UPDATE_TREATMENT_PLAN_STATUS: {
+    label: "تحديث حالة خطة علاج",
+    color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+    icon: RefreshCw,
+  },
+  DELETE_TREATMENT_PLAN_ITEM: {
+    label: "حذف بند من خطة علاج",
     color: "text-rose-400 bg-rose-500/10 border-rose-500/20",
     icon: Ban,
   },
@@ -389,13 +460,13 @@ export default function AuditLogs() {
       {/* Table / List View */}
       <div className="bg-[#0d1527] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
+          <table className="w-full text-right text-xs table-fixed">
             <thead className="bg-[#111827]/70 text-slate-400 border-b border-slate-800 font-medium">
               <tr>
-                <th className="px-4 py-3.5">العملية</th>
-                <th className="px-4 py-3.5">التفاصيل والوصف</th>
-                <th className="px-4 py-3.5">الموظف المسؤول</th>
-                <th className="px-4 py-3.5">التوقيت (القاهرة)</th>
+                <th className="px-4 py-3.5 w-[20%]">العملية</th>
+                <th className="px-4 py-3.5 w-[42%]">التفاصيل والوصف</th>
+                <th className="px-4 py-3.5 w-[20%]">الموظف المسؤول</th>
+                <th className="px-4 py-3.5 w-[18%]">التوقيت (القاهرة)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -492,32 +563,37 @@ export default function AuditLogs() {
           </table>
         </div>
 
-        {/* Pagination Footer */}
-        {!loading && totalCount > limit && (
-          <div className="bg-[#111827]/60 border-t border-slate-800 px-4 py-3 flex items-center justify-between gap-4">
-            <span className="text-xs text-slate-400">
-              صفحة <span className="font-bold text-slate-200">{page}</span> من{" "}
-              <span className="font-bold text-slate-200">{totalPages}</span>
-            </span>
-
+        {/* Pagination Footer (الزراير على اليمين في الـ RTL) */}
+        {!loading && totalCount > 0 && (
+          <div className="bg-[#111827]/60 border-t border-slate-800 px-6 py-4 flex items-center justify-between text-sm text-slate-400">
+            {/* 1. الزراير على اليمين */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                disabled={page === 1}
+                className="px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
               >
-                <ArrowRight className="w-3.5 h-3.5" />
                 السابق
               </button>
-
+              <span className="text-xs text-slate-400 px-2">
+                صفحة <span className="font-bold text-teal-400">{page}</span> من{" "}
+                <span className="font-bold text-slate-200">{totalPages}</span>
+              </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
               >
                 التالي
-                <ArrowLeft className="w-3.5 h-3.5" />
               </button>
+            </div>
+
+            {/* 2. عرض الإجمالي على الشمال */}
+            <div className="text-xs">
+              عرض{" "}
+              <span className="font-bold text-slate-200">{logs.length}</span> من
+              أصل <span className="font-bold text-slate-200">{totalCount}</span>{" "}
+              نشاط
             </div>
           </div>
         )}

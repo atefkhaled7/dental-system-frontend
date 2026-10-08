@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import BookAppointmentModal from "../components/BookAppointmentModal";
 import { createPortal } from "react-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
 import { printInvoice } from "../utils/printInvoice";
 import api from "../api/axios";
@@ -15,8 +20,6 @@ import {
   AlertCircle,
   AlertTriangle,
   X,
-  Search,
-  UserPlus,
   Check,
   Loader2,
   Filter,
@@ -52,6 +55,10 @@ export default function Appointments() {
   const { user } = useAuth();
   const [durationSettingsOpen, setDurationSettingsOpen] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState(30);
+
+  // Pagination المواعيد
+  const [page, setPage] = useState(1);
+  const limit = 10;
 
   // فلاتر المواعيد
   const [dateFilterMode, setDateFilterMode] = useState("all");
@@ -107,8 +114,8 @@ export default function Appointments() {
       if (res.data) {
         printInvoice(res.data);
       }
-    } catch (err) {
-      showToast("تعذر جلب بيانات الفاتورة للطباعة", "error");
+    } catch (error) {
+      showToast("تعذر جلب بيانات الفاتورة للطباعة", error);
     } finally {
       setPrintingInvoiceId(null);
     }
@@ -162,29 +169,36 @@ export default function Appointments() {
     };
   }, []);
 
-  // جلب المواعيد
-  const {
-    data: appointments = [],
-    isLoading,
-    isError,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["appointments", filterDate, filterDoctor],
+  // جلب المواعيد مع الـ Pagination والفلاتر من الباك إند مباشرة
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: [
+      "appointments",
+      { page, limit, filterDate, filterDoctor, filterStatus },
+    ],
     queryFn: async () => {
-      const params = {};
+      const params = {
+        page,
+        limit,
+      };
       if (filterDate) params.date = filterDate;
       if (filterDoctor) params.doctor_id = filterDoctor;
+      if (filterStatus) params.status = filterStatus;
       const res = await api.get("/appointments", { params });
-      return res.data.appointments || [];
+      return res.data;
     },
+    placeholderData: keepPreviousData,
   });
 
-  const filteredAppointments = filterStatus
-    ? appointments.filter(
-        (apt) => (apt.status || "").toLowerCase().trim() === filterStatus
-      )
-    : appointments;
+  const appointments = data?.appointments || [];
+  const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
+  const filteredAppointments = appointments;
+
+  // لو المستخدم في صفحة أعلى من 1 والصفحة فضيت، يرجع تلقائياً للصفحة السابقة
+  useEffect(() => {
+    if (!isLoading && page > 1 && appointments.length === 0) {
+      setPage((p) => Math.max(1, p - 1));
+    }
+  }, [isLoading, page, appointments.length]);
 
   const { data: durationSettings } = useQuery({
     queryKey: ["clinic-duration-settings"],
@@ -423,6 +437,7 @@ export default function Appointments() {
               onChange={(e) => {
                 const value = e.target.value;
                 setDateFilterMode(value);
+                setPage(1);
                 if (value === "all") setFilterDate("");
                 else if (value === "today") setFilterDate(getTodayString());
                 else if (value === "tomorrow")
@@ -444,7 +459,10 @@ export default function Appointments() {
             <input
               type="date"
               value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
+              onChange={(e) => {
+                setFilterDate(e.target.value);
+                setPage(1);
+              }}
               className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
             />
           )}
@@ -453,7 +471,10 @@ export default function Appointments() {
           <div className="relative">
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              onChange={(e) => {
+                setFilterStatus(e.target.value);
+                setPage(1);
+              }}
               className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
             >
               <option value="">📌 كل الحالات</option>
@@ -469,7 +490,10 @@ export default function Appointments() {
           <div className="relative min-w-[170px]">
             <select
               value={filterDoctor}
-              onChange={(e) => setFilterDoctor(e.target.value)}
+              onChange={(e) => {
+                setFilterDoctor(e.target.value);
+                setPage(1);
+              }}
               className="w-full appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer transition-colors"
             >
               <option value="">كل الأطباء</option>
@@ -527,6 +551,7 @@ export default function Appointments() {
                     setFilterDoctor("");
                     setFilterStatus("");
                     setDateFilterMode("all");
+                    setPage(1);
                   }}
                   className="text-xs text-[var(--primary-base)] hover:underline"
                 >
@@ -554,20 +579,22 @@ export default function Appointments() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
+            <table className="w-full text-right text-sm table-fixed">
               <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
                 <tr>
-                  <th className="py-3.5 px-5 font-medium text-xs">المريض</th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3.5 px-5 font-medium text-xs w-[24%]">
+                    المريض
+                  </th>
+                  <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
                     الطبيب المعالج
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
+                  <th className="py-3.5 px-5 font-medium text-xs w-[22%]">
                     تاريخ ووقت الميعاد
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs">
-                  حالة الموعد والفاتورة
+                  <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
+                    حالة الموعد والفاتورة
                   </th>
-                  <th className="py-3.5 px-5 font-medium text-xs text-center">
+                  <th className="py-3.5 px-5 font-medium text-xs text-center w-[18%]">
                     الإجراءات
                   </th>
                 </tr>
@@ -584,7 +611,10 @@ export default function Appointments() {
                     >
                       {/* المريض */}
                       <td className="py-3.5 px-5">
-                        <p className="font-semibold text-[var(--text-main)]">
+                        <p
+                          className="font-semibold text-[var(--text-main)] truncate"
+                          title={apt.patient_name}
+                        >
                           {apt.patient_name}
                         </p>
                         <span
@@ -637,7 +667,7 @@ export default function Appointments() {
                             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
                               <Check className="w-3 h-3" />
                               <span>
-                               (
+                                (
                                 {parseFloat(
                                   apt.invoice_total || 0
                                 ).toLocaleString("en-US")}{" "}
@@ -900,6 +930,49 @@ export default function Appointments() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        {/* 🌟 شريط الـ Pagination (الزراير على اليمين في الـ RTL) */}
+        {!isLoading && pagination.total > 0 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
+            {/* الزراير على اليمين */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                السابق
+              </button>
+              <span className="text-xs text-[var(--text-secondary)] px-2">
+                صفحة <span className="font-bold text-teal-400">{page}</span> من{" "}
+                <span className="font-bold text-[var(--text-main)]">
+                  {pagination.totalPages}
+                </span>
+              </span>
+              <button
+                onClick={() =>
+                  setPage((p) => Math.min(pagination.totalPages, p + 1))
+                }
+                disabled={page >= pagination.totalPages}
+                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+              >
+                التالي
+              </button>
+            </div>
+
+            {/* عرض الإجمالي على الشمال */}
+            <div className="text-xs">
+              عرض{" "}
+              <span className="font-bold text-[var(--text-main)]">
+                {appointments.length}
+              </span>{" "}
+              من أصل{" "}
+              <span className="font-bold text-[var(--text-main)]">
+                {pagination.total}
+              </span>{" "}
+              موعد
+            </div>
           </div>
         )}
       </div>

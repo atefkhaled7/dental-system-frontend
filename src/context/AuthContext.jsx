@@ -30,7 +30,7 @@ export const AuthProvider = ({ children }) => {
       setToken(receivedToken);
       setUser(receivedUser);
 
-      return { success: true };
+      return { success: true, user: receivedUser };
     } catch (error) {
       console.error(
         "Login error:",

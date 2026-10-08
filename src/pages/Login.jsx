@@ -18,7 +18,10 @@ export default function Login() {
     const result = await login(email, password);
     setLoading(false);
     if (result.success) {
-      navigate("/");
+      const redirectPath =
+        result.user?.role === "SuperAdmin" ? "/clinics" : "/";
+
+      navigate(redirectPath, { replace: true });
     } else {
       setErrorMessage(result.error);
     }
