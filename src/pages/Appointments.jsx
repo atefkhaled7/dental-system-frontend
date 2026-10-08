@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import BookAppointmentModal from "../components/BookAppointmentModal";
+import BookingRequestsView from "../components/BookingRequestsView";
 import { createPortal } from "react-dom";
 import {
   useQuery,
@@ -28,6 +29,7 @@ import {
   RefreshCw,
   Trash2,
   MessageCircle,
+  Globe,
 } from "lucide-react";
 
 const getCurrentDateTimeLocal = () => {
@@ -51,6 +53,20 @@ const getTomorrowString = () => {
 
 export default function Appointments() {
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("calendar"); // calendar أو requests
+
+  // جلب عدد طلبات الحجز المعلقة لعرضها كـ Badge أحمر
+  const { data: pendingRequestsData } = useQuery({
+    queryKey: ["booking-requests-pending-count"],
+    queryFn: async () => {
+      const res = await api.get("/booking-requests", {
+        params: { status: "pending", limit: 1 },
+      });
+      return res.data?.pagination?.total || 0;
+    },
+    refetchInterval: 30000, // فحص تلقائي كل 30 ثانية
+  });
+  const pendingRequestsCount = pendingRequestsData || 0;
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [durationSettingsOpen, setDurationSettingsOpen] = useState(false);
@@ -85,13 +101,14 @@ export default function Appointments() {
     newDate: "",
   });
 
-  // حالة مودال تحويل الموعد لفاتورة سريعة
+  // حالة مودال تحويل الموعد لفاتورة سريعة مع خيار الطباعة
   const [invoiceModal, setInvoiceModal] = useState({
     isOpen: false,
     appointment: null,
     itemDescription: "كشف عيادة / استشارة",
     itemPrice: "",
     paidAmount: "",
+    autoPrint: false, // 👈 غير مفعل افتراضياً
   });
 
   // حالة مودال تأكيد الحذف
@@ -291,19 +308,21 @@ export default function Appointments() {
         paidAmount: "",
       });
 
-      showToast("تم إصدار الفاتورة بنجاح، جاري فتح الطباعة...", "success");
+      showToast("تم إصدار الفاتورة بنجاح", "success");
 
-      // فتح نافذة الطباعة فوراً
-      try {
-        const createdInvoiceId = data?.invoice?.id;
-        if (createdInvoiceId) {
-          const fullInv = await api.get(`/invoices/${createdInvoiceId}`);
-          if (fullInv.data) {
-            printInvoice(fullInv.data);
+      // فتح نافذة الطباعة فقط إذا اختار المستخدم ذلك
+      if (invoiceModal.autoPrint) {
+        try {
+          const createdInvoiceId = data?.invoice?.id;
+          if (createdInvoiceId) {
+            const fullInv = await api.get(`/invoices/${createdInvoiceId}`);
+            if (fullInv.data) {
+              printInvoice(fullInv.data);
+            }
           }
+        } catch (printErr) {
+          console.error("Print auto open error:", printErr);
         }
-      } catch (printErr) {
-        console.error("Print auto open error:", printErr);
       }
     },
     onError: (err) => {
@@ -420,563 +439,620 @@ export default function Appointments() {
           </button>
         </div>
       </div>
+      {/* 🌟 شريط التبديل بين جدول المواعيد وطلبات الحجز العامة */}
+      <div className="flex border-b border-[var(--border-default)] gap-6">
+        <button
+          onClick={() => setActiveTab("calendar")}
+          className={`flex items-center gap-2 pb-3 text-sm font-semibold transition-all relative ${
+            activeTab === "calendar"
+              ? "text-[var(--primary-base)] border-b-2 border-[var(--primary-base)]"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+          }`}
+        >
+          <CalendarIcon className="w-4 h-4" />
+          <span>جدول المواعيد الحية</span>
+        </button>
 
-      {/* 🌟 شريط الفلاتر */}
-      <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-[var(--primary-base)]" />
-          <span className="text-xs font-medium text-[var(--text-secondary)]">
-            فلترة المواعيد:
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* فلترة التاريخ */}
-          <div className="relative">
-            <select
-              value={dateFilterMode}
-              onChange={(e) => {
-                const value = e.target.value;
-                setDateFilterMode(value);
-                setPage(1);
-                if (value === "all") setFilterDate("");
-                else if (value === "today") setFilterDate(getTodayString());
-                else if (value === "tomorrow")
-                  setFilterDate(getTomorrowString());
-                else if (value === "custom") setFilterDate("");
-              }}
-              className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
-            >
-              <option value="all">📅 كل التواريخ</option>
-              <option value="today">📅 مواعيد اليوم</option>
-              <option value="tomorrow">📅 مواعيد الغد</option>
-              <option value="custom">📅 تاريخ محدد</option>
-            </select>
-            <CalendarIcon className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
-          </div>
-
-          {/* التاريخ المخصص */}
-          {dateFilterMode === "custom" && (
-            <input
-              type="date"
-              value={filterDate}
-              onChange={(e) => {
-                setFilterDate(e.target.value);
-                setPage(1);
-              }}
-              className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
-            />
+        <button
+          onClick={() => setActiveTab("requests")}
+          className={`flex items-center gap-2 pb-3 text-sm font-semibold transition-all relative ${
+            activeTab === "requests"
+              ? "text-[var(--primary-base)] border-b-2 border-[var(--primary-base)]"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          <span>طلبات الحجز أونلاين</span>
+          {pendingRequestsCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
+              {pendingRequestsCount}
+            </span>
           )}
-
-          {/* فلترة الحالة */}
-          <div className="relative">
-            <select
-              value={filterStatus}
-              onChange={(e) => {
-                setFilterStatus(e.target.value);
-                setPage(1);
-              }}
-              className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
-            >
-              <option value="">📌 كل الحالات</option>
-              <option value="scheduled">مجدول</option>
-              <option value="completed">مكتمل</option>
-              <option value="no_show">لم يحضر</option>
-              <option value="cancelled">ملغي</option>
-            </select>
-            <Filter className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
-          </div>
-
-          {/* فلترة الطبيب */}
-          <div className="relative min-w-[170px]">
-            <select
-              value={filterDoctor}
-              onChange={(e) => {
-                setFilterDoctor(e.target.value);
-                setPage(1);
-              }}
-              className="w-full appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer transition-colors"
-            >
-              <option value="">كل الأطباء</option>
-              {doctors.map((d) => (
-                <option key={d.id} value={d.id}>
-                  د. {d.name}
-                </option>
-              ))}
-            </select>
-            <User className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
-          </div>
-        </div>
+        </button>
       </div>
 
-      {/* 🌟 جدول المواعيد */}
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden">
-        {isLoading ? (
-          <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
-            <span className="text-sm">جاري تحميل جدول المواعيد...</span>
-          </div>
-        ) : isError ? (
-          <div className="p-12 flex flex-col items-center justify-center text-center gap-3">
-            <AlertTriangle className="w-10 h-10 text-[var(--danger-text)]" />
-            <p className="text-[var(--text-main)] font-semibold">
-              حدث خطأ أثناء تحميل جدول المواعيد
-            </p>
-            <p className="text-xs text-[var(--text-muted)]">
-              {error?.response?.data?.error ||
-                "تعذر الاتصال بالسيرفر، تأكد من اتصالك وجرب مجدداً"}
-            </p>
-            <button
-              onClick={() => refetch()}
-              className="mt-2 flex items-center gap-2 px-4 py-2 bg-[var(--bg-elevated)] hover:bg-[var(--border-default)] text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium border border-[var(--border-default)] transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              إعادة المحاولة
-            </button>
-          </div>
-        ) : appointments.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
-            {filterDate || filterDoctor || filterStatus ? (
-              <>
-                <Filter className="w-8 h-8 text-[var(--text-muted)] mb-1" />
-                <p className="text-[var(--text-main)] font-semibold">
-                  لا توجد مواعيد بهذه الفلاتر
-                </p>
-                <p className="text-xs text-[var(--text-muted)] mb-2">
-                  لم يتم العثور على أي حجز مطابق لخيارات التاريخ أو الطبيب
-                  المحددة.
-                </p>
-                <button
-                  onClick={() => {
-                    setFilterDate("");
-                    setFilterDoctor("");
-                    setFilterStatus("");
-                    setDateFilterMode("all");
+      {activeTab === "calendar" ? (
+        <>
+          {/* 🌟 شريط الفلاتر */}
+          <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-[var(--primary-base)]" />
+              <span className="text-xs font-medium text-[var(--text-secondary)]">
+                فلترة المواعيد:
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* فلترة التاريخ */}
+              <div className="relative">
+                <select
+                  value={dateFilterMode}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDateFilterMode(value);
+                    setPage(1);
+                    if (value === "all") setFilterDate("");
+                    else if (value === "today") setFilterDate(getTodayString());
+                    else if (value === "tomorrow")
+                      setFilterDate(getTomorrowString());
+                    else if (value === "custom") setFilterDate("");
+                  }}
+                  className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
+                >
+                  <option value="all">📅 كل التواريخ</option>
+                  <option value="today">📅 مواعيد اليوم</option>
+                  <option value="tomorrow">📅 مواعيد الغد</option>
+                  <option value="custom">📅 تاريخ محدد</option>
+                </select>
+                <CalendarIcon className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
+              </div>
+
+              {/* التاريخ المخصص */}
+              {dateFilterMode === "custom" && (
+                <input
+                  type="date"
+                  value={filterDate}
+                  onChange={(e) => {
+                    setFilterDate(e.target.value);
                     setPage(1);
                   }}
-                  className="text-xs text-[var(--primary-base)] hover:underline"
+                  className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                />
+              )}
+
+              {/* فلترة الحالة */}
+              <div className="relative">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => {
+                    setFilterStatus(e.target.value);
+                    setPage(1);
+                  }}
+                  className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
                 >
-                  إعادة ضبط الفلاتر وعرض الكل
-                </button>
-              </>
-            ) : (
-              <>
-                <CalendarIcon className="w-8 h-8 text-[var(--text-muted)] mb-1" />
+                  <option value="">📌 كل الحالات</option>
+                  <option value="scheduled">مجدول</option>
+                  <option value="completed">مكتمل</option>
+                  <option value="no_show">لم يحضر</option>
+                  <option value="cancelled">ملغي</option>
+                </select>
+                <Filter className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
+              </div>
+
+              {/* فلترة الطبيب */}
+              <div className="relative min-w-[170px]">
+                <select
+                  value={filterDoctor}
+                  onChange={(e) => {
+                    setFilterDoctor(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer transition-colors"
+                >
+                  <option value="">كل الأطباء</option>
+                  {doctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      د. {d.name}
+                    </option>
+                  ))}
+                </select>
+                <User className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* 🌟 جدول المواعيد */}
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden">
+            {isLoading ? (
+              <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
+                <span className="text-sm">جاري تحميل جدول المواعيد...</span>
+              </div>
+            ) : isError ? (
+              <div className="p-12 flex flex-col items-center justify-center text-center gap-3">
+                <AlertTriangle className="w-10 h-10 text-[var(--danger-text)]" />
                 <p className="text-[var(--text-main)] font-semibold">
-                  لا توجد مواعيد محجوزة حتى الآن
+                  حدث خطأ أثناء تحميل جدول المواعيد
                 </p>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
-                  جدول العيادة فارغ حالياً، يمكنك بدء حجز ميعاد جديد الآن.
+                <p className="text-xs text-[var(--text-muted)]">
+                  {error?.response?.data?.error ||
+                    "تعذر الاتصال بالسيرفر، تأكد من اتصالك وجرب مجدداً"}
                 </p>
                 <button
-                  onClick={() => setIsBookModalOpen(true)}
-                  className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                  onClick={() => refetch()}
+                  className="mt-2 flex items-center gap-2 px-4 py-2 bg-[var(--bg-elevated)] hover:bg-[var(--border-default)] text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium border border-[var(--border-default)] transition-colors"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  حجز ميعاد جديد
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  إعادة المحاولة
                 </button>
-              </>
+              </div>
+            ) : appointments.length === 0 ? (
+              <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
+                {filterDate || filterDoctor || filterStatus ? (
+                  <>
+                    <Filter className="w-8 h-8 text-[var(--text-muted)] mb-1" />
+                    <p className="text-[var(--text-main)] font-semibold">
+                      لا توجد مواعيد بهذه الفلاتر
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)] mb-2">
+                      لم يتم العثور على أي حجز مطابق لخيارات التاريخ أو الطبيب
+                      المحددة.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setFilterDate("");
+                        setFilterDoctor("");
+                        setFilterStatus("");
+                        setDateFilterMode("all");
+                        setPage(1);
+                      }}
+                      className="text-xs text-[var(--primary-base)] hover:underline"
+                    >
+                      إعادة ضبط الفلاتر وعرض الكل
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <CalendarIcon className="w-8 h-8 text-[var(--text-muted)] mb-1" />
+                    <p className="text-[var(--text-main)] font-semibold">
+                      لا توجد مواعيد محجوزة حتى الآن
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)] mb-3">
+                      جدول العيادة فارغ حالياً، يمكنك بدء حجز ميعاد جديد الآن.
+                    </p>
+                    <button
+                      onClick={() => setIsBookModalOpen(true)}
+                      className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      حجز ميعاد جديد
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-sm table-fixed">
+                  <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
+                    <tr>
+                      <th className="py-3.5 px-5 font-medium text-xs w-[24%]">
+                        المريض
+                      </th>
+                      <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
+                        الطبيب المعالج
+                      </th>
+                      <th className="py-3.5 px-5 font-medium text-xs w-[22%]">
+                        تاريخ ووقت الميعاد
+                      </th>
+                      <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
+                        حالة الموعد والفاتورة
+                      </th>
+                      <th className="py-3.5 px-5 font-medium text-xs text-center w-[18%]">
+                        الإجراءات
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
+                    {filteredAppointments.map((apt) => {
+                      const status = (apt.status || "").toLowerCase().trim();
+                      const hasInvoice = !!apt.invoice_id;
+
+                      return (
+                        <tr
+                          key={apt.id}
+                          className="hover:bg-[var(--bg-elevated)]/60 transition-colors"
+                        >
+                          {/* المريض */}
+                          <td className="py-3.5 px-5">
+                            <p
+                              className="font-semibold text-[var(--text-main)] truncate"
+                              title={apt.patient_name}
+                            >
+                              {apt.patient_name}
+                            </p>
+                            <span
+                              className="text-xs text-[var(--text-muted)] font-mono"
+                              dir="ltr"
+                            >
+                              {apt.patient_phone}
+                            </span>
+                          </td>
+
+                          {/* الطبيب */}
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-2">
+                              <User className="w-4 h-4 text-[var(--primary-base)]" />
+                              <span className="text-[var(--text-secondary)]">
+                                د. {apt.doctor_name}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* التاريخ والوقت والمدة */}
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center gap-2 text-[var(--text-secondary)] font-mono text-xs">
+                              <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                              <span dir="ltr">
+                                {formatDateTime(apt.appointment_date)}
+                              </span>
+                            </div>
+                            {apt.duration_minutes && (
+                              <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
+                                المدة: {apt.duration_minutes} دقيقة
+                              </span>
+                            )}
+                          </td>
+
+                          {/* حالة الموعد والفوترة - شكل نظيف وبدون أزرار ضخمة */}
+                          <td className="py-3.5 px-5">
+                            <div className="flex flex-col items-start gap-1">
+                              <span
+                                className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
+                                  statusConfig[status]?.bg ||
+                                  "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
+                                }`}
+                              >
+                                {statusConfig[status]?.label || apt.status}
+                              </span>
+
+                              {/* مؤشر الفاتورة الأنيق */}
+                              {hasInvoice ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
+                                  <Check className="w-3 h-3" />
+                                  <span>
+                                    (
+                                    {parseFloat(
+                                      apt.invoice_total || 0
+                                    ).toLocaleString("en-US")}{" "}
+                                    ج.م)
+                                  </span>
+                                </span>
+                              ) : status === "completed" ? (
+                                <span className="text-xs text-amber-400">
+                                  ⏳ بدون فاتورة
+                                </span>
+                              ) : null}
+                            </div>
+                          </td>
+
+                          {/* الإجراءات */}
+                          <td className="py-3.5 px-5">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {status === "scheduled" && (
+                                <>
+                                  <button
+                                    title="اكتمل الكشف (سيفتح نافذة الفاتورة والطباعة تلقائياً)"
+                                    onClick={() =>
+                                      updateStatusMutation.mutate({
+                                        id: apt.id,
+                                        status: "completed",
+                                        appointment: apt,
+                                      })
+                                    }
+                                    className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    title="لم يحضر"
+                                    onClick={() =>
+                                      updateStatusMutation.mutate({
+                                        id: apt.id,
+                                        status: "no_show",
+                                        appointment: apt,
+                                      })
+                                    }
+                                    className="p-1.5 hover:bg-[var(--warning-bg)] text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                                  >
+                                    <AlertCircle className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    title="إلغاء الميعاد"
+                                    onClick={() =>
+                                      updateStatusMutation.mutate({
+                                        id: apt.id,
+                                        status: "cancelled",
+                                        appointment: apt,
+                                      })
+                                    }
+                                    className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+
+                              {/* إعادة الجدولة (متاحة لغير المكتمل) */}
+                              {status !== "completed" && (
+                                <button
+                                  title="إعادة جدولة الموعد"
+                                  onClick={() =>
+                                    setRescheduleData({
+                                      isOpen: true,
+                                      appointmentId: apt.id,
+                                      patientName: apt.patient_name,
+                                      currentDate: apt.appointment_date,
+                                      newDate: getCurrentDateTimeLocal(),
+                                    })
+                                  }
+                                  className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                >
+                                  <RefreshCw className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* 🖨️ زرار الفاتورة / الطباعة المباشرة */}
+                              {hasInvoice ? (
+                                <button
+                                  title="طباعة الفاتورة 🖨️"
+                                  disabled={
+                                    printingInvoiceId === apt.invoice_id
+                                  }
+                                  onClick={() =>
+                                    handlePrintExistingInvoice(apt.invoice_id)
+                                  }
+                                  className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                >
+                                  {printingInvoiceId === apt.invoice_id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Printer className="w-4 h-4" />
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  title="إصدار وطباعة فاتورة"
+                                  onClick={() =>
+                                    setInvoiceModal({
+                                      isOpen: true,
+                                      appointment: apt,
+                                      itemDescription: "كشف عيادة / استشارة",
+                                      itemPrice: "",
+                                      paidAmount: "",
+                                    })
+                                  }
+                                  className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                >
+                                  <Receipt className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* 📲 زرار وقائمة الواتساب */}
+                              <div>
+                                <button
+                                  title="مراسلة المريض عبر واتساب"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (activeWhatsAppMenu === apt.id) {
+                                      setActiveWhatsAppMenu(null);
+                                      setWhatsAppMenuPosition(null);
+                                      return;
+                                    }
+                                    const rect =
+                                      e.currentTarget.getBoundingClientRect();
+                                    const gap = 4;
+                                    setWhatsAppMenuPosition({
+                                      top: rect.bottom + gap,
+                                      left: rect.left,
+                                    });
+                                    setActiveWhatsAppMenu(apt.id);
+                                  }}
+                                  className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors flex items-center justify-center"
+                                >
+                                  <MessageCircle className="w-4 h-4" />
+                                </button>
+
+                                {activeWhatsAppMenu === apt.id &&
+                                  createPortal(
+                                    <div
+                                      ref={whatsAppMenuRef}
+                                      dir="rtl"
+                                      style={{
+                                        position: "fixed",
+                                        top: `${
+                                          whatsAppMenuPosition?.top ?? 0
+                                        }px`,
+                                        left: `${
+                                          whatsAppMenuPosition?.left ?? 0
+                                        }px`,
+                                        zIndex: 99999,
+                                      }}
+                                      className="w-52 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] shadow-elevation p-1 space-y-1 text-right"
+                                    >
+                                      {status === "completed" ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "feedback"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>⭐</span>
+                                            <span>
+                                              تقييم الزيارة ورأي المريض
+                                            </span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "follow_up"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>🩺</span>
+                                            <span>
+                                              اطمئنان ومتابعة بعد الكشف
+                                            </span>
+                                          </button>
+                                        </>
+                                      ) : status === "no_show" ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "no_show"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>🌸</span>
+                                            <span>متابعة عدم الحضور</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "reminder"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>🔔</span>
+                                            <span>اقتراح موعد جديد</span>
+                                          </button>
+                                        </>
+                                      ) : status === "scheduled" ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "confirmation"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>🦷</span>
+                                            <span>تأكيد الحجز</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSendWhatsApp(
+                                                apt.id,
+                                                "reminder"
+                                              )
+                                            }
+                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
+                                          >
+                                            <span>🔔</span>
+                                            <span>تذكير بالموعد</span>
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <div className="px-2.5 py-2 text-xs text-center text-[var(--text-muted)]">
+                                          الموعد ملغي
+                                        </div>
+                                      )}
+                                    </div>,
+                                    document.body
+                                  )}
+                              </div>
+
+                              {/* حذف الموعد (للـ ClinicAdmin فقط) */}
+                              {user?.role === "ClinicAdmin" && (
+                                <button
+                                  title="حذف الموعد نهائياً"
+                                  onClick={() =>
+                                    setDeleteModal({
+                                      isOpen: true,
+                                      appointmentId: apt.id,
+                                      patientName: apt.patient_name,
+                                    })
+                                  }
+                                  className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {/* 🌟 شريط الـ Pagination (الزراير على اليمين في الـ RTL) */}
+            {!isLoading && pagination.total > 0 && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
+                {/* الزراير على اليمين */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+                  >
+                    السابق
+                  </button>
+                  <span className="text-xs text-[var(--text-secondary)] px-2">
+                    صفحة <span className="font-bold text-teal-400">{page}</span>{" "}
+                    من{" "}
+                    <span className="font-bold text-[var(--text-main)]">
+                      {pagination.totalPages}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() =>
+                      setPage((p) => Math.min(pagination.totalPages, p + 1))
+                    }
+                    disabled={page >= pagination.totalPages}
+                    className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
+                  >
+                    التالي
+                  </button>
+                </div>
+
+                {/* عرض الإجمالي على الشمال */}
+                <div className="text-xs">
+                  عرض{" "}
+                  <span className="font-bold text-[var(--text-main)]">
+                    {appointments.length}
+                  </span>{" "}
+                  من أصل{" "}
+                  <span className="font-bold text-[var(--text-main)]">
+                    {pagination.total}
+                  </span>{" "}
+                  موعد
+                </div>
+              </div>
             )}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm table-fixed">
-              <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
-                <tr>
-                  <th className="py-3.5 px-5 font-medium text-xs w-[24%]">
-                    المريض
-                  </th>
-                  <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
-                    الطبيب المعالج
-                  </th>
-                  <th className="py-3.5 px-5 font-medium text-xs w-[22%]">
-                    تاريخ ووقت الميعاد
-                  </th>
-                  <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
-                    حالة الموعد والفاتورة
-                  </th>
-                  <th className="py-3.5 px-5 font-medium text-xs text-center w-[18%]">
-                    الإجراءات
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
-                {filteredAppointments.map((apt) => {
-                  const status = (apt.status || "").toLowerCase().trim();
-                  const hasInvoice = !!apt.invoice_id;
-
-                  return (
-                    <tr
-                      key={apt.id}
-                      className="hover:bg-[var(--bg-elevated)]/60 transition-colors"
-                    >
-                      {/* المريض */}
-                      <td className="py-3.5 px-5">
-                        <p
-                          className="font-semibold text-[var(--text-main)] truncate"
-                          title={apt.patient_name}
-                        >
-                          {apt.patient_name}
-                        </p>
-                        <span
-                          className="text-xs text-[var(--text-muted)] font-mono"
-                          dir="ltr"
-                        >
-                          {apt.patient_phone}
-                        </span>
-                      </td>
-
-                      {/* الطبيب */}
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-[var(--primary-base)]" />
-                          <span className="text-[var(--text-secondary)]">
-                            د. {apt.doctor_name}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* التاريخ والوقت والمدة */}
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center gap-2 text-[var(--text-secondary)] font-mono text-xs">
-                          <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                          <span dir="ltr">
-                            {formatDateTime(apt.appointment_date)}
-                          </span>
-                        </div>
-                        {apt.duration_minutes && (
-                          <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
-                            المدة: {apt.duration_minutes} دقيقة
-                          </span>
-                        )}
-                      </td>
-
-                      {/* حالة الموعد والفوترة - شكل نظيف وبدون أزرار ضخمة */}
-                      <td className="py-3.5 px-5">
-                        <div className="flex flex-col items-start gap-1">
-                          <span
-                            className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
-                              statusConfig[status]?.bg ||
-                              "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
-                            }`}
-                          >
-                            {statusConfig[status]?.label || apt.status}
-                          </span>
-
-                          {/* مؤشر الفاتورة الأنيق */}
-                          {hasInvoice ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
-                              <Check className="w-3 h-3" />
-                              <span>
-                                (
-                                {parseFloat(
-                                  apt.invoice_total || 0
-                                ).toLocaleString("en-US")}{" "}
-                                ج.م)
-                              </span>
-                            </span>
-                          ) : status === "completed" ? (
-                            <span className="text-xs text-amber-400">
-                              ⏳ بدون فاتورة
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-
-                      {/* الإجراءات */}
-                      <td className="py-3.5 px-5">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {status === "scheduled" && (
-                            <>
-                              <button
-                                title="اكتمل الكشف (سيفتح نافذة الفاتورة والطباعة تلقائياً)"
-                                onClick={() =>
-                                  updateStatusMutation.mutate({
-                                    id: apt.id,
-                                    status: "completed",
-                                    appointment: apt,
-                                  })
-                                }
-                                className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
-                              >
-                                <CheckCircle2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                title="لم يحضر"
-                                onClick={() =>
-                                  updateStatusMutation.mutate({
-                                    id: apt.id,
-                                    status: "no_show",
-                                    appointment: apt,
-                                  })
-                                }
-                                className="p-1.5 hover:bg-[var(--warning-bg)] text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                              >
-                                <AlertCircle className="w-4 h-4" />
-                              </button>
-                              <button
-                                title="إلغاء الميعاد"
-                                onClick={() =>
-                                  updateStatusMutation.mutate({
-                                    id: apt.id,
-                                    status: "cancelled",
-                                    appointment: apt,
-                                  })
-                                }
-                                className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
-                              >
-                                <XCircle className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
-
-                          {/* إعادة الجدولة (متاحة لغير المكتمل) */}
-                          {status !== "completed" && (
-                            <button
-                              title="إعادة جدولة الموعد"
-                              onClick={() =>
-                                setRescheduleData({
-                                  isOpen: true,
-                                  appointmentId: apt.id,
-                                  patientName: apt.patient_name,
-                                  currentDate: apt.appointment_date,
-                                  newDate: getCurrentDateTimeLocal(),
-                                })
-                              }
-                              className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {/* 🖨️ زرار الفاتورة / الطباعة المباشرة */}
-                          {hasInvoice ? (
-                            <button
-                              title="طباعة الفاتورة 🖨️"
-                              disabled={printingInvoiceId === apt.invoice_id}
-                              onClick={() =>
-                                handlePrintExistingInvoice(apt.invoice_id)
-                              }
-                              className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                            >
-                              {printingInvoiceId === apt.invoice_id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Printer className="w-4 h-4" />
-                              )}
-                            </button>
-                          ) : (
-                            <button
-                              title="إصدار وطباعة فاتورة"
-                              onClick={() =>
-                                setInvoiceModal({
-                                  isOpen: true,
-                                  appointment: apt,
-                                  itemDescription: "كشف عيادة / استشارة",
-                                  itemPrice: "",
-                                  paidAmount: "",
-                                })
-                              }
-                              className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                            >
-                              <Receipt className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {/* 📲 زرار وقائمة الواتساب */}
-                          <div>
-                            <button
-                              title="مراسلة المريض عبر واتساب"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (activeWhatsAppMenu === apt.id) {
-                                  setActiveWhatsAppMenu(null);
-                                  setWhatsAppMenuPosition(null);
-                                  return;
-                                }
-                                const rect =
-                                  e.currentTarget.getBoundingClientRect();
-                                const gap = 4;
-                                setWhatsAppMenuPosition({
-                                  top: rect.bottom + gap,
-                                  left: rect.left,
-                                });
-                                setActiveWhatsAppMenu(apt.id);
-                              }}
-                              className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors flex items-center justify-center"
-                            >
-                              <MessageCircle className="w-4 h-4" />
-                            </button>
-
-                            {activeWhatsAppMenu === apt.id &&
-                              createPortal(
-                                <div
-                                  ref={whatsAppMenuRef}
-                                  dir="rtl"
-                                  style={{
-                                    position: "fixed",
-                                    top: `${whatsAppMenuPosition?.top ?? 0}px`,
-                                    left: `${
-                                      whatsAppMenuPosition?.left ?? 0
-                                    }px`,
-                                    zIndex: 99999,
-                                  }}
-                                  className="w-52 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] shadow-elevation p-1 space-y-1 text-right"
-                                >
-                                  {status === "completed" ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(apt.id, "feedback")
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>⭐</span>
-                                        <span>تقييم الزيارة ورأي المريض</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(
-                                            apt.id,
-                                            "follow_up"
-                                          )
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>🩺</span>
-                                        <span>اطمئنان ومتابعة بعد الكشف</span>
-                                      </button>
-                                    </>
-                                  ) : status === "no_show" ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(apt.id, "no_show")
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>🌸</span>
-                                        <span>متابعة عدم الحضور</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(apt.id, "reminder")
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>🔔</span>
-                                        <span>اقتراح موعد جديد</span>
-                                      </button>
-                                    </>
-                                  ) : status === "scheduled" ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(
-                                            apt.id,
-                                            "confirmation"
-                                          )
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>🦷</span>
-                                        <span>تأكيد الحجز</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleSendWhatsApp(apt.id, "reminder")
-                                        }
-                                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                      >
-                                        <span>🔔</span>
-                                        <span>تذكير بالموعد</span>
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <div className="px-2.5 py-2 text-xs text-center text-[var(--text-muted)]">
-                                      الموعد ملغي
-                                    </div>
-                                  )}
-                                </div>,
-                                document.body
-                              )}
-                          </div>
-
-                          {/* حذف الموعد (للـ ClinicAdmin فقط) */}
-                          {user?.role === "ClinicAdmin" && (
-                            <button
-                              title="حذف الموعد نهائياً"
-                              onClick={() =>
-                                setDeleteModal({
-                                  isOpen: true,
-                                  appointmentId: apt.id,
-                                  patientName: apt.patient_name,
-                                })
-                              }
-                              className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {/* 🌟 شريط الـ Pagination (الزراير على اليمين في الـ RTL) */}
-        {!isLoading && pagination.total > 0 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
-            {/* الزراير على اليمين */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
-              >
-                السابق
-              </button>
-              <span className="text-xs text-[var(--text-secondary)] px-2">
-                صفحة <span className="font-bold text-teal-400">{page}</span> من{" "}
-                <span className="font-bold text-[var(--text-main)]">
-                  {pagination.totalPages}
-                </span>
-              </span>
-              <button
-                onClick={() =>
-                  setPage((p) => Math.min(pagination.totalPages, p + 1))
-                }
-                disabled={page >= pagination.totalPages}
-                className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
-              >
-                التالي
-              </button>
-            </div>
-
-            {/* عرض الإجمالي على الشمال */}
-            <div className="text-xs">
-              عرض{" "}
-              <span className="font-bold text-[var(--text-main)]">
-                {appointments.length}
-              </span>{" "}
-              من أصل{" "}
-              <span className="font-bold text-[var(--text-main)]">
-                {pagination.total}
-              </span>{" "}
-              موعد
-            </div>
-          </div>
-        )}
-      </div>
-
+        </>
+      ) : (
+        <BookingRequestsView showToast={showToast} />
+      )}
       {/* 🌟 نافذة إعادة الجدولة */}
       {rescheduleData.isOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1175,6 +1251,23 @@ export default function Appointments() {
                   />
                 </div>
               </div>
+
+              {/* خيار طباعة الفاتورة الاختياري */}
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)] select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={invoiceModal.autoPrint}
+                  onChange={(e) =>
+                    setInvoiceModal({
+                      ...invoiceModal,
+                      autoPrint: e.target.checked,
+                    })
+                  }
+                  className="w-3.5 h-3.5 rounded border-[var(--border-default)] bg-[var(--bg-app)] text-[var(--primary-base)] focus:ring-0 cursor-pointer"
+                />
+                <span>طباعة الفاتورة فور الإصدار</span>
+              </label>
+
               <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
@@ -1193,13 +1286,10 @@ export default function Appointments() {
                   {convertToInvoiceMutation.isPending ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>جاري الإصدار...</span>
+                      <span>جاري الحفظ...</span>
                     </>
                   ) : (
-                    <>
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>إصدار وطباعة</span>
-                    </>
+                    <span>إصدار الفاتورة</span>
                   )}
                 </button>
               </div>

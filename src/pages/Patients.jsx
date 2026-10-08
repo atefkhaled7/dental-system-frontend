@@ -252,7 +252,7 @@ export default function Patients() {
                   setImportResult(null);
                   setIsImportModalOpen(true);
                 }}
-                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3.5 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
+                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3 py-2 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
               >
                 <Upload className="w-4 h-4 text-teal-400" />
                 <span>استيراد CSV</span>
@@ -261,14 +261,14 @@ export default function Patients() {
               <button
                 onClick={handleExportPatients}
                 disabled={isExporting}
-                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3.5 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors disabled:opacity-50"
+                className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-main)] px-3 py-2 rounded-[var(--radius-btn)] font-medium text-sm transition-colors disabled:opacity-50"
               >
                 {isExporting ? (
                   <Loader2 className="w-4 h-4 animate-spin text-[var(--primary-base)]" />
                 ) : (
                   <Download className="w-4 h-4 text-[var(--primary-base)]" />
                 )}
-                <span>تصدير بيانات المرضي</span>
+                <span>تصدير CSV</span>
               </button>
             </>
           )}

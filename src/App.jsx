@@ -13,12 +13,14 @@ import Staff from "./pages/Staff";
 import Clinics from "./pages/Clinics";
 import NotFound from "./pages/NotFound";
 import AuditLogs from "./pages/AuditLogs";
+import PublicClinicProfile from "./pages/PublicClinicProfile";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/payment-status" element={<PaymentStatus />} />
+        <Route path="/c/:slug" element={<PublicClinicProfile />} />
         <Route path="/login" element={<Login />} />
 
         <Route

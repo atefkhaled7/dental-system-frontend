@@ -66,13 +66,14 @@ export default function Dashboard() {
     day: "numeric",
   });
 
-  // حالة مودال تحويل الموعد إلى فاتورة
+  // حالة مودال تحويل الموعد إلى فاتورة مع خيار الطباعة
   const [invoiceModal, setInvoiceModal] = useState({
     isOpen: false,
     appointment: null,
     itemDescription: "كشف عيادة / علاج",
     itemPrice: "",
     paidAmount: "",
+    autoPrint: false, // 👈 اختياري وغير مفعل افتراضياً
   });
 
   const [activeActionMenu, setActiveActionMenu] = useState(null);
@@ -143,23 +144,22 @@ export default function Dashboard() {
         paidAmount: "",
       });
 
-      showToast(
-        "تم إصدار الفاتورة وتحديث الدخل، جاري فتح الطباعة...",
-        "success"
-      );
+      showToast("تم إصدار الفاتورة وتحديث الدخل بنجاح", "success");
 
-      // فتح نافذة الطباعة فوراً
-      try {
-        const createdInvoiceId = data?.invoice?.id;
-        if (createdInvoiceId) {
-          const res = await api.get(`/invoices/${createdInvoiceId}`);
-          const invoice = res.data?.invoice || res.data;
-          if (invoice) {
-            printInvoice(invoice);
+      // فتح نافذة الطباعة فقط إذا كان خيار الطباعة مفعلاً
+      if (invoiceModal.autoPrint) {
+        try {
+          const createdInvoiceId = data?.invoice?.id;
+          if (createdInvoiceId) {
+            const res = await api.get(`/invoices/${createdInvoiceId}`);
+            const invoice = res.data?.invoice || res.data;
+            if (invoice) {
+              printInvoice(invoice);
+            }
           }
+        } catch (err) {
+          console.error("Print error:", err);
         }
-      } catch (err) {
-        console.error("Print error:", err);
       }
     },
     onError: (err) => {
@@ -856,6 +856,23 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+
+              {/* خيار طباعة الفاتورة الاختياري */}
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={invoiceModal.autoPrint}
+                  onChange={(e) =>
+                    setInvoiceModal({
+                      ...invoiceModal,
+                      autoPrint: e.target.checked,
+                    })
+                  }
+                  className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-teal-400 focus:ring-0 cursor-pointer"
+                />
+                <span>طباعة الفاتورة فور الإصدار</span>
+              </label>
+
               <div className="flex gap-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
@@ -876,11 +893,13 @@ export default function Dashboard() {
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>جاري الحفظ...</span>
                     </>
-                  ) : (
+                  ) : invoiceModal.autoPrint ? (
                     <>
                       <Printer className="w-3.5 h-3.5" />
                       <span>إصدار وطباعة</span>
                     </>
+                  ) : (
+                    <span>إصدار الفاتورة</span>
                   )}
                 </button>
               </div>
