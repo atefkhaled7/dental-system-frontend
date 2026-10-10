@@ -427,7 +427,7 @@ export default function Appointments() {
               className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
             >
               <Clock className="w-4 h-4" />
-              <span>مدة الكشف الافتراضية</span>
+              <span>المدة الافتراضية</span>
             </button>
           )}
           <button
@@ -435,7 +435,7 @@ export default function Appointments() {
             className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>حجز ميعاد جديد</span>
+            <span>حجز موعد جديد</span>
           </button>
         </div>
       </div>

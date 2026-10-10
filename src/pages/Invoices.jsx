@@ -96,14 +96,14 @@ export default function Invoices() {
       });
 
       const url = window.URL.createObjectURL(
-        new Blob([res.data], { type: "text/csv;charset=utf-8;" })
+        new Blob([res.data], { type: "text/csv;charset=utf-8;" }),
       );
 
       const link = document.createElement("a");
       link.href = url;
       link.setAttribute(
         "download",
-        `financial_report_${new Date().toISOString().split("T")[0]}.csv`
+        `financial_report_${new Date().toISOString().split("T")[0]}.csv`,
       );
 
       document.body.appendChild(link);
@@ -162,6 +162,42 @@ export default function Invoices() {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
+  // مودال إلغاء الدفعة لمدير العيادة
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [paymentToVoid, setPaymentToVoid] = useState(null);
+  const [voidReason, setVoidReason] = useState("");
+
+  const voidPaymentMutation = useMutation({
+    mutationFn: async ({ paymentId, reason }) => {
+      const res = await api.post(`/payments/${paymentId}/void`, { reason });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({
+        queryKey: ["invoiceDetails", selectedInvoice?.id],
+      });
+      setIsVoidModalOpen(false);
+      setPaymentToVoid(null);
+      setVoidReason("");
+    },
+    onError: (err) => {
+      alert(err.response?.data?.error || "فشل إلغاء الدفعة المالية");
+    },
+  });
+
+  const handleConfirmVoidPayment = (e) => {
+    e.preventDefault();
+    if (!voidReason.trim() || voidReason.trim().length < 3) {
+      alert("يرجى كتابة سبب الإلغاء بوضوح (3 أحرف على الأقل)");
+      return;
+    }
+    voidPaymentMutation.mutate({
+      paymentId: paymentToVoid.id,
+      reason: voidReason.trim(),
+    });
+  };
 
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
@@ -425,7 +461,7 @@ export default function Invoices() {
     setInvoiceForm((prev) => ({
       ...prev,
       items: prev.items.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item
+        i === index ? { ...item, [field]: value } : item,
       ),
     }));
   };
@@ -443,7 +479,7 @@ export default function Invoices() {
               unit_price: parseFloat(selected.default_price),
               procedure_code_id: selected.id,
             }
-          : item
+          : item,
       ),
     }));
   };
@@ -976,7 +1012,7 @@ export default function Invoices() {
                       onChange={(e) => {
                         const apptId = e.target.value;
                         const selectedApt = patientAppointments.find(
-                          (a) => a.id === apptId
+                          (a) => a.id === apptId,
                         );
                         setInvoiceForm({
                           ...invoiceForm,
@@ -995,7 +1031,7 @@ export default function Invoices() {
                         <option key={apt.id} value={apt.id}>
                           ميعاد يوم{" "}
                           {new Date(apt.appointment_date).toLocaleDateString(
-                            "en-GB"
+                            "en-GB",
                           )}{" "}
                           مع د. {apt.doctor_name}
                         </option>
@@ -1258,7 +1294,7 @@ export default function Invoices() {
                         dir="ltr"
                       >
                         {new Date(
-                          invoiceDetails.appointment_date
+                          invoiceDetails.appointment_date,
                         ).toLocaleDateString("en-GB")}
                       </span>
                     )}
@@ -1330,6 +1366,11 @@ export default function Invoices() {
                             <th className="py-2 px-3 text-right font-medium">
                               ملاحظات
                             </th>
+                            {user?.role === "ClinicAdmin" && (
+                              <th className="py-2 px-3 text-center font-medium">
+                                الإجراء
+                              </th>
+                            )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#243047] text-[#CBD5E1]">
@@ -1357,12 +1398,33 @@ export default function Invoices() {
                                 dir="ltr"
                               >
                                 {new Date(
-                                  pm.paid_at || pm.created_at
+                                  pm.paid_at || pm.created_at,
                                 ).toLocaleString("ar-EG")}
                               </td>
                               <td className="py-2 px-3 text-[#64748B] text-[11px]">
                                 {pm.notes || "-"}
                               </td>
+                              {user?.role === "ClinicAdmin" && (
+                                <td className="py-2 px-3 text-center">
+                                  {pm.status === "paid" &&
+                                    pm.payment_method !== "online" &&
+                                    pm.provider !== "paymob" && (
+                                      <button
+                                        type="button"
+                                        title="إلغاء / تراجع عن الدفعة"
+                                        onClick={() => {
+                                          setPaymentToVoid(pm);
+                                          setVoidReason("");
+                                          setIsVoidModalOpen(true);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-[#F87171] hover:bg-[#EF4444]/10 rounded border border-[#EF4444]/20 transition-colors"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                        <span>إلغاء</span>
+                                      </button>
+                                    )}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
@@ -1376,7 +1438,7 @@ export default function Invoices() {
                     <span>إجمالي الفاتورة:</span>
                     <span className="font-mono text-[#F8FAFC]">
                       {parseFloat(
-                        invoiceDetails?.total_amount || 0
+                        invoiceDetails?.total_amount || 0,
                       ).toLocaleString("en-US")}{" "}
                       ج.م
                     </span>
@@ -1385,7 +1447,7 @@ export default function Invoices() {
                     <span>إجمالي المدفوع:</span>
                     <span className="font-mono">
                       {parseFloat(
-                        invoiceDetails?.paid_amount || 0
+                        invoiceDetails?.paid_amount || 0,
                       ).toLocaleString("en-US")}{" "}
                       ج.م
                     </span>
@@ -1394,7 +1456,7 @@ export default function Invoices() {
                     <span>المتبقي على المريض:</span>
                     <span className="font-mono text-sm">
                       {parseFloat(
-                        invoiceDetails?.remaining_amount || 0
+                        invoiceDetails?.remaining_amount || 0,
                       ).toLocaleString("en-US")}{" "}
                       ج.م
                     </span>
@@ -1458,7 +1520,7 @@ export default function Invoices() {
                 <span className="font-semibold font-mono text-[#F87171]">
                   {parseFloat(
                     selectedInvoice.remaining_amount ||
-                      selectedInvoice.total_amount
+                      selectedInvoice.total_amount,
                   ).toLocaleString("en-US")}{" "}
                   ج.م
                 </span>
@@ -1651,7 +1713,7 @@ export default function Invoices() {
                           min="1"
                           max={
                             parseFloat(
-                              onlineSelectedInvoice.remaining_amount
+                              onlineSelectedInvoice.remaining_amount,
                             ) || parseFloat(onlineSelectedInvoice.total_amount)
                           }
                           placeholder="أدخل المبلغ المطلوب..."
@@ -1907,6 +1969,82 @@ export default function Invoices() {
                   : "تأكيد الأرشفة نهائياً"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* نافذة تأكيد إلغاء الدفعة المالية */}
+      {isVoidModalOpen && paymentToVoid && (
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
+          <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] space-y-4 text-right">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-[#EF4444]/10 rounded-md border border-[#EF4444]/20 text-[#F87171]">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-[17px] font-semibold text-[#F8FAFC]">
+                  تأكيد إلغاء الدفعة المالية
+                </h3>
+                <p className="text-[12px] text-[#F87171] font-medium">
+                  سيتم خصم المبلغ من الفاتورة وإعادتها لحالتها السابقة.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-[#080D18] border border-[#243047] rounded-md space-y-1.5 text-xs">
+              <div className="flex justify-between text-[#94A3B8]">
+                <span>قيمة الدفعة:</span>
+                <span className="font-mono font-bold text-[#F8FAFC]">
+                  {parseFloat(paymentToVoid.amount).toLocaleString("en-US")} ج.م
+                </span>
+              </div>
+              <div className="flex justify-between text-[#94A3B8]">
+                <span>طريقة الدفع:</span>
+                <span>
+                  {paymentMethodConfig[paymentToVoid.payment_method] ||
+                    paymentToVoid.payment_method}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmVoidPayment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-[#CBD5E1] mb-1.5">
+                  سبب الإلغاء (إجباري لسجل الرقابة) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثال: تم إدخال المبلغ كاش بالخطأ بدل 500 ج.م"
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  className="w-full bg-[#111827] border border-[#243047] rounded-md px-3 py-2 text-xs text-[#F8FAFC] focus:outline-none focus:border-[#EF4444]"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2 border-t border-[#243047]">
+                <button
+                  type="button"
+                  onClick={() => setIsVoidModalOpen(false)}
+                  className="flex-1 py-2 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-xs transition-colors"
+                >
+                  تراجع
+                </button>
+                <button
+                  type="submit"
+                  disabled={voidPaymentMutation.isPending}
+                  className="flex-1 bg-[#EF4444] hover:bg-red-600 text-white py-2 rounded-md text-xs font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {voidPaymentMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الإلغاء...</span>
+                    </>
+                  ) : (
+                    <span>تأكيد الإلغاء نهائياً</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

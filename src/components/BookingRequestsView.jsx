@@ -205,10 +205,11 @@ export default function BookingRequestsView({ showToast }) {
                           {req.patient_phone}
                         </span>
                         <a
-                          href={`https://wa.me/2${req.patient_phone.replace(
-                            /\D/g,
-                            ""
-                          )}`}
+                          href={`https://wa.me/${
+                            req.patient_phone.replace(/\D/g, "").startsWith("2")
+                              ? req.patient_phone.replace(/\D/g, "")
+                              : `2${req.patient_phone.replace(/\D/g, "")}`
+                          }`}
                           target="_blank"
                           rel="noreferrer"
                           title="مراسلة سريعة عبر واتساب"

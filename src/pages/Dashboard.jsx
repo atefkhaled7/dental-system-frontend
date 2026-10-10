@@ -2,6 +2,7 @@ import { useState } from "react";
 import BookAppointmentModal from "../components/BookAppointmentModal";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { printInvoice } from "../utils/printInvoice";
@@ -51,7 +52,7 @@ export default function Dashboard() {
     } catch (err) {
       showToast(
         err.response?.data?.error || "فشل تحميل بيانات الفاتورة للطباعة",
-        "error"
+        "error",
       );
     } finally {
       setPrintingInvoiceId(null);
@@ -277,54 +278,135 @@ export default function Dashboard() {
           <span>{todayFormatted}</span>
         </div>
       </div>
-
+      {/* 🔔 تنبيه طلبات الحجز أونلاين الجديدة */}
+      {stats.pending_bookings_count > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl shrink-0">
+              <CalendarIcon className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-200">
+                يوجد {stats.pending_bookings_count} طلب حجز أونلاين جديد بانتظار
+                المراجعة!
+              </h3>
+              <p className="text-xs text-amber-300/80">
+                يرجى مراجعة وتأكيد المواعيد قبل انتهاء مهلة الطلب (24 ساعة).
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/appointments"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md shadow-amber-500/20 whitespace-nowrap self-end sm:self-auto"
+          >
+            عرض وتأكيد الحجوزات ↗
+          </Link>
+        </div>
+      )}
       {/* 🌟 2. كروت المؤشرات السريعة (KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         {/* كارت 1: الدخل المالي المدمج */}
-        <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-emerald-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <span className="text-xs text-slate-400 block mb-1">
-                تحصيلات الشهر الحالي
-              </span>
-              <div className="text-2xl font-bold font-mono text-emerald-400">
-                {stats.month_income.toLocaleString("en-US")}{" "}
-                <span className="text-xs text-slate-400 font-sans">ج.م</span>
+        {/* كروت الإيرادات المالية: تظهر فقط لمدير العيادة */}
+        {user?.role === "ClinicAdmin" ? (
+          <>
+            {/* كارت 1: الدخل المالي المدمج */}
+            <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-emerald-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-xs text-slate-400 block mb-1">
+                    تحصيلات الشهر الحالي
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {(stats.month_income || 0).toLocaleString("en-US")}{" "}
+                    <span className="text-xs text-slate-400 font-sans">
+                      ج.م
+                    </span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-sm shadow-emerald-500/10 shrink-0">
+                  <DollarSign className="w-6 h-6" />
+                </div>
+              </div>
+              <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                <span className="text-slate-400">المحصّل اليوم:</span>
+                <span className="font-mono font-bold text-emerald-400">
+                  {stats.today_income.toLocaleString("en-US")} ج.م
+                </span>
               </div>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-sm shadow-emerald-500/10 shrink-0">
-              <DollarSign className="w-6 h-6" />
-            </div>
-          </div>
-          <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs">
-            <span className="text-slate-400">المحصّل اليوم:</span>
-            <span className="font-mono font-bold text-emerald-400">
-              {stats.today_income.toLocaleString("en-US")} ج.م
-            </span>
-          </div>
-        </div>
 
-        {/* كارت 2: فلوس برة (المستحقات) */}
-        <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-rose-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <span className="text-xs text-slate-400 block mb-1">
-                فلوس برة (مستحقات)
-              </span>
-              <div className="text-2xl font-bold font-mono text-rose-400">
-                {stats.total_dues.toLocaleString("en-US")}{" "}
-                <span className="text-xs text-slate-400 font-sans">ج.م</span>
+            {/* كارت 2: فلوس برة (المستحقات) */}
+            <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-rose-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-xs text-slate-400 block mb-1">
+                    فلوس برة (مستحقات)
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-rose-400">
+                    {(stats.total_dues || 0).toLocaleString("en-US")}{" "}
+                    <span className="text-xs text-slate-400 font-sans">
+                      ج.م
+                    </span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shadow-sm shadow-rose-500/10 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
               </div>
+              <span className="text-[11px] text-slate-500 mt-3 pt-2.5 border-t border-slate-800/80 block">
+                إجمالي ديون المرضى النشطة
+              </span>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shadow-sm shadow-rose-500/10 shrink-0">
-              <AlertTriangle className="w-6 h-6" />
+          </>
+        ) : (
+          <>
+            {/* كارت بديل للريسبشن والدكاترة: تحصيل اليوم للخزينة */}
+            <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-emerald-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-xs text-slate-400 block mb-1">
+                    تحصيل الخزينة اليوم
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {stats.today_income.toLocaleString("en-US")}{" "}
+                    <span className="text-xs text-slate-400 font-sans">
+                      ج.م
+                    </span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-sm shrink-0">
+                  <DollarSign className="w-6 h-6" />
+                </div>
+              </div>
+              <span className="text-[11px] text-slate-500 mt-3 pt-2.5 border-t border-slate-800/80 block">
+                إجمالي المبالغ المحصلة كاش اليوم
+              </span>
             </div>
-          </div>
-          <span className="text-[11px] text-slate-500 mt-3 pt-2.5 border-t border-slate-800/80 block">
-            إجمالي ديون المرضى النشطة
-          </span>
-        </div>
 
+            {/* كارت بديل للريسبشن: طلبات الحجز أونلاين */}
+            <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-amber-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-xs text-slate-400 block mb-1">
+                    طلبات الحجز الجديدة
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-amber-400">
+                    {stats.pending_bookings_count || 0}{" "}
+                    <span className="text-xs text-slate-400 font-sans">
+                      طلب معلق
+                    </span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-sm shrink-0">
+                  <CalendarIcon className="w-6 h-6" />
+                </div>
+              </div>
+              <span className="text-[11px] text-slate-500 mt-3 pt-2.5 border-t border-slate-800/80 block">
+                حجوزات واردة من صفحة الموقع
+              </span>
+            </div>
+          </>
+        )}
         {/* كارت 3: إجمالي المرضى النشطين */}
         <div className="lg:col-span-2 bg-[var(--bg-surface)] backdrop-blur-md border border-slate-800 hover:border-teal-500/30 p-5 rounded-xl shadow-xl transition-all flex flex-col justify-between">
           <div className="flex items-start justify-between">
@@ -448,7 +530,7 @@ export default function Dashboard() {
                             <span className="text-[11px] font-bold text-rose-400 font-mono">
                               متبقي:{" "}
                               {parseFloat(apt.patient_total_due).toLocaleString(
-                                "en-US"
+                                "en-US",
                               )}{" "}
                               ج.م
                             </span>
@@ -611,7 +693,7 @@ export default function Dashboard() {
                                       setActiveActionMenu(null);
                                       setActionMenuPosition(null);
                                       handlePrintAppointmentInvoice(
-                                        apt.appointment_invoice_id
+                                        apt.appointment_invoice_id,
                                       );
                                     }}
                                     className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--primary-base)] hover:bg-[var(--primary-muted)] rounded-[var(--radius-btn)] transition-colors"
@@ -646,7 +728,7 @@ export default function Dashboard() {
                                 )}
                               </div>
                             </>,
-                            document.body
+                            document.body,
                           )}
                       </td>
                     </tr>
@@ -681,8 +763,8 @@ export default function Dashboard() {
                     lo.urgency === "overdue"
                       ? "bg-rose-950/20 border-rose-800/60"
                       : lo.urgency === "today"
-                      ? "bg-amber-950/20 border-amber-800/60"
-                      : "bg-[var(--bg-elevated)] border-slate-800"
+                        ? "bg-amber-950/20 border-amber-800/60"
+                        : "bg-[var(--bg-elevated)] border-slate-800"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">

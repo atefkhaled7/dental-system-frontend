@@ -273,7 +273,7 @@ export default function LabOrders() {
           className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
         >
           <Plus className="w-4 h-4" />
-          <span>إرسال طلب جديد للمعمل</span>
+          <span> طلب جديد للمعمل</span>
         </button>
       </div>
 
