@@ -14,6 +14,8 @@ import Clinics from "./pages/Clinics";
 import NotFound from "./pages/NotFound";
 import AuditLogs from "./pages/AuditLogs";
 import PublicClinicProfile from "./pages/PublicClinicProfile";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
         <Route path="/payment-status" element={<PaymentStatus />} />
         <Route path="/c/:slug" element={<PublicClinicProfile />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsOfService />} />
 
         <Route
           path="/"

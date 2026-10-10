@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Lock, Mail, AlertCircle, Loader2 } from "lucide-react";
 
 export default function Login() {
@@ -121,7 +121,23 @@ export default function Login() {
             )}
           </button>
         </form>
-
+        {/* روابط الشروط والخصوصية */}
+        <p className="text-xs text-center text-slate-400 mt-4 leading-relaxed">
+          بتسجيل الدخول، أنت توافق على{" "}
+          <Link
+            to="/terms"
+            className="underline hover:text-white transition-colors"
+          >
+            شروط الاستخدام
+          </Link>{" "}
+          و{" "}
+          <Link
+            to="/privacy"
+            className="underline hover:text-white transition-colors"
+          >
+            سياسة الخصوصية
+          </Link>
+        </p>
         {/* فوتر بسيط */}
         <div className="mt-8 pt-6 border-t border-slate-800 text-center">
           <p className="text-xs text-slate-500">
