@@ -5,14 +5,12 @@ import api from "../api/axios";
 import DentalChart from "../components/DentalChart";
 import TreatmentPlans from "../components/TreatmentPlans";
 import MedicalImages from "../components/MedicalImages";
+import PatientPrescriptions from "../components/PatientPrescriptions";
 import {
   ArrowRight,
   Phone,
   Calendar,
   AlertTriangle,
-  Clock,
-  Receipt,
-  Package,
   Loader2,
   Check,
   Edit,
@@ -215,7 +213,7 @@ export default function PatientDetails() {
     onError: (err) => {
       showToast(
         err.response?.data?.error || "حدث خطأ أثناء تعديل المريض",
-        "error"
+        "error",
       );
     },
   });
@@ -250,7 +248,7 @@ export default function PatientDetails() {
     onError: (err) => {
       showToast(
         err.response?.data?.error || "حدث خطأ أثناء الاستعادة",
-        "error"
+        "error",
       );
     },
   });
@@ -414,6 +412,7 @@ export default function PatientDetails() {
             { id: "dental_chart", label: "مخطط الأسنان 🦷" },
             { id: "treatment_plans", label: "خطط العلاج 📋" },
             { id: "medical_images", label: "الصور والأشعة 📸" },
+            { id: "prescriptions", label: "الروشتات 💊" },
             { id: "appointments", label: "المواعيد" },
             { id: "invoices", label: "الفواتير" },
             { id: "lab_orders", label: "طلبات المعمل" },
@@ -514,6 +513,10 @@ export default function PatientDetails() {
             />
           )}
 
+          {activeTab === "prescriptions" && (
+            <PatientPrescriptions patientId={id} patient={patient} />
+          )}
+
           {/* تبويب: المواعيد */}
           {activeTab === "appointments" && (
             <div>
@@ -544,7 +547,7 @@ export default function PatientDetails() {
                         >
                           <td className="py-3 px-4 font-medium text-[var(--text-main)] font-mono">
                             {new Date(app.appointment_date).toLocaleString(
-                              "ar-EG"
+                              "ar-EG",
                             )}
                           </td>
                           <td className="py-3 px-4">د. {app.doctor_name}</td>
@@ -695,7 +698,7 @@ export default function PatientDetails() {
                 if (!PHONE_REGEX.test(editFormData.phone_number.trim())) {
                   showToast(
                     "رقم الهاتف غير صالح (أرقام فقط من 10 إلى 15 رقم)",
-                    "error"
+                    "error",
                   );
                   return;
                 }
@@ -707,7 +710,7 @@ export default function PatientDetails() {
                   if (selectedDate > new Date()) {
                     showToast(
                       "تاريخ الميلاد لا يمكن أن يكون في المستقبل",
-                      "error"
+                      "error",
                     );
                     return;
                   }

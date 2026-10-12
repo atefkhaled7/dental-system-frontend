@@ -25,19 +25,19 @@ import {
   Loader2,
   AlertCircle,
   Building,
+  Tag,
+  BarChart3,
 } from "lucide-react";
 
 export default function Sidebar({ isMobileOpen, onCloseMobile }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const queryClient = useQueryClient();
-
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCopiedModal, setIsCopiedModal] = useState(false);
   const [isCopiedQuick, setIsCopiedQuick] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
-
   const [form, setForm] = useState({
     name: "",
     phone_number: "",
@@ -46,18 +46,17 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     slug: "",
   });
 
-  // 🌟 1. جلب بيانات العيادة للجميع (أدمن، دكتور، ريسبشن) وتخزينها في الكاش
+  // 🌟 1. جلب بيانات العيادة (فقط للمستخدمين التابعين لعيادة وليس السوبر أدمن)
   const { data: clinicData, isLoading: isLoadingClinic } = useQuery({
     queryKey: ["clinic-profile", user?.clinic_id],
     queryFn: async () => {
       const res = await api.get("/clinics");
       return res.data?.clinics?.[0] || null;
     },
-    enabled: !!user?.clinic_id,
-    staleTime: 1000 * 60 * 15, // كاش 15 دقيقة
+    enabled: !!user?.clinic_id && user?.role !== "SuperAdmin",
+    staleTime: 1000 * 60 * 15,
   });
 
-  // تعبئة البيانات في فورم الإعدادات لو انفتحت
   useEffect(() => {
     if (clinicData) {
       setForm({
@@ -72,7 +71,23 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     }
   }, [clinicData]);
 
-  // نسخ الرابط السريع للريسبشن
+  useEffect(() => {
+    const handleOpenClinicSettings = () => {
+      setIsSettingsOpen(true);
+      onCloseMobile?.();
+    };
+    window.addEventListener(
+      "curosta:open-clinic-settings",
+      handleOpenClinicSettings,
+    );
+    return () => {
+      window.removeEventListener(
+        "curosta:open-clinic-settings",
+        handleOpenClinicSettings,
+      );
+    };
+  }, [onCloseMobile]);
+
   const handleCopyQuickLink = (slug) => {
     if (!slug) return;
     const url = `${window.location.origin}/c/${slug}`;
@@ -81,7 +96,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     setTimeout(() => setIsCopiedQuick(false), 2000);
   };
 
-  // نسخ الرابط من داخل المودال
   const handleCopyModalLink = () => {
     if (!form.slug) return;
     const url = `${window.location.origin}/c/${form.slug}`;
@@ -90,7 +104,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     setTimeout(() => setIsCopiedModal(false), 2000);
   };
 
-  // ميوتيشن حفظ التعديلات
   const updateClinicMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.put(`/clinics/${user?.clinic_id}`, payload);
@@ -98,6 +111,7 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clinic-profile"] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding-status"] });
       setFormSuccess("تم حفظ الإعدادات وتحديث بيانات العيادة بنجاح");
       setTimeout(() => {
         setIsSettingsOpen(false);
@@ -128,22 +142,26 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
     });
   };
 
-  const navItems = [
-    { name: "الرئيسية", path: "/", icon: LayoutDashboard },
-    { name: "المرضى", path: "/patients", icon: Users },
-    { name: "المواعيد", path: "/appointments", icon: Calendar },
-    { name: "الفواتير والمالية", path: "/invoices", icon: CreditCard },
-    { name: "طلبات المعامل", path: "/lab-orders", icon: FlaskConical },
-    ...(user?.role === "ClinicAdmin"
-      ? [
-          { name: "سجل الرقابة", path: "/audit-logs", icon: ClipboardList },
-          { name: "طاقم العمل", path: "/staff", icon: UserCog },
-        ]
-      : []),
-    ...(user?.role === "SuperAdmin"
-      ? [{ name: "إدارة العيادات", path: "/clinics", icon: Building2 }]
-      : []),
-  ];
+  // 🌟 فصل روابط السوبر أدمن عن روابط العيادة لمنع أخطاء 403
+  const isSuperAdmin = user?.role === "SuperAdmin";
+
+  const navItems = isSuperAdmin
+    ? [{ name: "إدارة العيادات", path: "/clinics", icon: Building2 }]
+    : [
+        { name: "الرئيسية", path: "/", icon: LayoutDashboard },
+        { name: "المرضى", path: "/patients", icon: Users },
+        { name: "المواعيد", path: "/appointments", icon: Calendar },
+        { name: "الفواتير والمالية", path: "/invoices", icon: CreditCard },
+        { name: "طلبات المعامل", path: "/lab-orders", icon: FlaskConical },
+        { name: "الخدمات والأسعار", path: "/services", icon: Tag },
+        ...(user?.role === "ClinicAdmin"
+          ? [
+              { name: "سجل الرقابة", path: "/audit-logs", icon: ClipboardList },
+              { name: "طاقم العمل", path: "/staff", icon: UserCog },
+              { name: "التقارير المالية", path: "/reports", icon: BarChart3 },
+            ]
+          : []),
+      ];
 
   const isRouteActive = (itemPath) => {
     if (itemPath === "/") return location.pathname === "/";
@@ -176,13 +194,12 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
           className="fixed inset-0 bg-black/75 backdrop-blur-sm z-40 lg:hidden transition-opacity"
         />
       )}
-
       <aside
         className={`fixed lg:sticky top-0 bottom-0 right-0 z-50 w-72 lg:w-64 bg-[var(--bg-surface)] border-l border-[var(--border-default)] flex flex-col h-screen transition-transform duration-300 ease-in-out ${
           isMobileOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
         }`}
       >
-        {/* لوجو CUROSTA + اسم العيادة الحقيقي */}
+        {/* اللوجو والعنوان */}
         <div className="p-5 flex items-center justify-between border-b border-[var(--border-default)]">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] border border-[var(--primary-base)]/20 shadow-sm shrink-0">
@@ -203,16 +220,20 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
               <h1 className="text-base font-bold text-[var(--text-main)] leading-none tracking-wider">
                 CUROSTA
               </h1>
-              {/* 🌟 اسم العيادة الحقيقي يظهر هنا */}
               <span
                 className="text-[11px] text-[var(--text-muted)] mt-1 block font-medium truncate max-w-[140px]"
-                title={clinicData?.name || "إدارة العيادة"}
+                title={
+                  isSuperAdmin
+                    ? "لوحة الإدارة العليا"
+                    : clinicData?.name || "إدارة العيادة"
+                }
               >
-                {clinicData?.name || "إدارة العيادة"}
+                {isSuperAdmin
+                  ? "لوحة الإدارة العليا"
+                  : clinicData?.name || "إدارة العيادة"}
               </span>
             </div>
           </div>
-
           <button
             onClick={onCloseMobile}
             className="lg:hidden p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] hover:bg-[var(--bg-elevated)] transition-colors"
@@ -222,7 +243,7 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
           </button>
         </div>
 
-        {/* روابط التنقل */}
+        {/* روابط التنقل المخصصة حسب الدور */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -265,10 +286,10 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
           )}
         </nav>
 
-        {/* الجزء السفلي: كارت رابط الحجز أونلاين + المستخدم + الخروج */}
+        {/* الجزء السفلي */}
         <div className="p-4 border-t border-[var(--border-default)] space-y-3">
-          {/* 🌟 كارت رابط الحجز أونلاين السريع (يظهر للريسبشن والدكاترة والأدمن) */}
-          {clinicData?.slug && (
+          {/* رابط الحجز للعيادات فقط */}
+          {!isSuperAdmin && clinicData?.slug && (
             <div className="px-3 py-2 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Globe className="w-4 h-4 text-[var(--primary-base)] shrink-0" />
@@ -276,7 +297,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                   صفحة الحجز أونلاين
                 </span>
               </div>
-{/* الأيقونات حرة بدون إطار (Border-free) */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
                   type="button"
@@ -304,7 +324,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
           )}
 
           {/* كارت المستخدم الحالي */}
-          {/* 🌟 كارت المستخدم المدمج مع زرار الخروج في مربع واحد */}
           <div className="p-2.5 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] flex items-center justify-between gap-2.5">
             <div className="min-w-0">
               <p className="text-xs font-bold text-[var(--text-main)] truncate">
@@ -314,8 +333,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                 {getRoleArabicName(user?.role)}
               </p>
             </div>
-
-            {/* زرار الخروج الصغير الملموم */}
             <button
               type="button"
               onClick={logout}
@@ -354,7 +371,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             {isLoadingClinic ? (
               <div className="py-12 flex flex-col items-center justify-center gap-3">
                 <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
@@ -376,7 +392,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                     <span>{formSuccess}</span>
                   </div>
                 )}
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
@@ -396,7 +411,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                       />
                     </div>
                   </div>
-
                   <div>
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                       رقم الهاتف للتواصل
@@ -416,7 +430,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                     </div>
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     عنوان العيادة التفصيلي (يظهر للمرضى في صفحة الحجز)
@@ -434,7 +447,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                     />
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     نبذة عن العيادة وتخصصاتها
@@ -452,7 +464,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                     />
                   </div>
                 </div>
-
                 <div className="p-3.5 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-[var(--primary-base)] flex items-center gap-1.5">
@@ -519,7 +530,6 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
                     </div>
                   )}
                 </div>
-
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border-default)]">
                   <button
                     type="button"

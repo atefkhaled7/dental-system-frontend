@@ -29,7 +29,12 @@ import {
   Copy,
   ExternalLink,
   Smartphone,
+  MessageCircle,
+  Ban,
 } from "lucide-react";
+
+// 🔒 التحكم في تفعيل ميزة روابط الدفع الإلكتروني (مغلق مؤقتاً لحين التعاقد مع بوابة الدفع)
+const ENABLE_ONLINE_PAYMENT = false;
 
 const PAYMENT_STATUS_CONFIG = {
   paid: {
@@ -120,7 +125,7 @@ export default function Invoices() {
     }
   };
 
-  // 1. State الفلاتر والـ Pagination لجدول الفواتير
+  // 1. State الفلاتر والـ Pagination
   const [page, setPage] = useState(1);
   const limit = 10;
   const [searchTerm, setSearchTerm] = useState("");
@@ -132,7 +137,7 @@ export default function Invoices() {
     setPage(1);
   };
 
-  // 2. كويري جلب الفواتير مع الـ Pagination
+  // 2. كويري جلب الفواتير
   const { data, isLoading } = useQuery({
     queryKey: [
       "invoices",
@@ -162,6 +167,7 @@ export default function Invoices() {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+  const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false); // 🌟 مودال إلغاء الفاتورة
 
   // مودال إلغاء الدفعة لمدير العيادة
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
@@ -184,6 +190,23 @@ export default function Invoices() {
     },
     onError: (err) => {
       alert(err.response?.data?.error || "فشل إلغاء الدفعة المالية");
+    },
+  });
+
+  // 🌟 Mutation إلغاء الفاتورة الرسمية
+  const cancelInvoiceMutation = useMutation({
+    mutationFn: async (invoiceId) => {
+      const res = await api.patch(`/invoices/${invoiceId}/cancel`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      setIsCancelConfirmOpen(false);
+      setIsDetailsModalOpen(false);
+      alert("تم إلغاء الفاتورة بنجاح");
+    },
+    onError: (err) => {
+      alert(err.response?.data?.error || "فشل إلغاء الفاتورة");
     },
   });
 
@@ -311,7 +334,19 @@ export default function Invoices() {
     notes: "",
   });
 
-  // 3. البحث المباشر عن المرضى عند الكتابة في المودال (خفيف جداً وسيرفر سايد)
+  const handleSendInvoiceWhatsApp = async (invoiceId) => {
+    try {
+      const res = await api.get(
+        `/whatsapp/invoice-link?invoice_id=${invoiceId}`,
+      );
+      if (res.data?.url) {
+        window.open(res.data.url, "_blank");
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || "فشل إنشاء رابط الواتساب للفاتورة");
+    }
+  };
+
   const { data: searchedPatients = [], isFetching: isSearchingPatients } =
     useQuery({
       queryKey: ["patients-invoice-search", patientInput],
@@ -330,7 +365,6 @@ export default function Invoices() {
       staleTime: 20000,
     });
 
-  // 4. جلب مواعيد المريض المختار فقط (مش كل مواعيد العيادة!)
   const { data: patientAppointments = [], isLoading: isLoadingAppointments } =
     useQuery({
       queryKey: ["patient-appointments", invoiceForm.patient_id],
@@ -772,7 +806,7 @@ export default function Invoices() {
                             inv.status === "partially_paid") && (
                             <div className="flex items-center gap-1.5">
                               <button
-                                title="تسجيل دفعة (تحصيل نقدي)"
+                                title="تسجيل دفعة (تحصيل نقدي / فيزا)"
                                 onClick={() => handleOpenPayment(inv)}
                                 className="flex items-center gap-1 px-2.5 py-1 bg-[#10B981]/10 hover:bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/20 rounded-md text-xs font-medium transition-colors"
                               >
@@ -780,13 +814,26 @@ export default function Invoices() {
                                 <span>تحصيل</span>
                               </button>
 
+                              {/* زرار رابط الدفع الإلكتروني */}
+                              {ENABLE_ONLINE_PAYMENT && (
+                                <button
+                                  title="إنشاء رابط دفع إلكتروني وواتساب"
+                                  onClick={() => handleOpenOnlineModal(inv)}
+                                  className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-[#172033] text-[#0D9488] border border-[#243047] hover:border-[#0D9488]/40 rounded-md text-xs font-medium transition-colors"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>رابط دفع</span>
+                                </button>
+                              )}
+
                               <button
-                                title="إنشاء رابط دفع إلكتروني وواتساب"
-                                onClick={() => handleOpenOnlineModal(inv)}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-[#172033] text-[#0D9488] border border-[#243047] hover:border-[#0D9488]/40 rounded-md text-xs font-medium transition-colors"
+                                title="إرسال كشف حساب ومطالبة عبر واتساب"
+                                onClick={() =>
+                                  handleSendInvoiceWhatsApp(inv.id)
+                                }
+                                className="p-1.5 hover:bg-[#10B981]/10 text-[#34D399] border border-[#10B981]/20 hover:border-[#10B981]/40 rounded-md transition-colors"
                               >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>رابط دفع</span>
+                                <MessageCircle className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           )}
@@ -863,7 +910,7 @@ export default function Invoices() {
             </div>
 
             <form onSubmit={handleSubmitInvoice} className="space-y-6">
-              {/* اختيار المريض مع البحث اللحظي */}
+              {/* اختيار المريض */}
               <div className="relative">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[13px] font-medium text-[#CBD5E1]">
@@ -995,7 +1042,7 @@ export default function Invoices() {
                 </div>
               </div>
 
-              {/* ربط بميعاد حجز سابق للمريض المختار فقط */}
+              {/* ربط بميعاد حجز سابق للمريض */}
               {invoiceForm.patient_id && (
                 <div>
                   <label className="block text-[13px] font-medium text-[#CBD5E1] mb-1.5">
@@ -1463,7 +1510,7 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-2">
+                <div className="flex flex-wrap items-center gap-2.5 pt-2">
                   <button
                     type="button"
                     onClick={handlePrintInvoice}
@@ -1473,20 +1520,37 @@ export default function Invoices() {
                     <span>طباعة الفاتورة</span>
                   </button>
 
+                  {/* 🌟 زرار إلغاء الفاتورة لمدير العيادة فقط لو الفاتورة مش ملغاة */}
+                  {!showArchived &&
+                    user?.role === "ClinicAdmin" &&
+                    invoiceDetails?.status !== "unpaid" && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCancelConfirmOpen(true)}
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-md text-[13px] font-medium transition-colors"
+                        title="إلغاء الفاتورة نهائياً"
+                      >
+                        <Ban className="w-4 h-4" />
+                        <span>إلغاء</span>
+                      </button>
+                    )}
+
                   {!showArchived && user?.role === "ClinicAdmin" && (
                     <button
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
-                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#EF4444]/10 hover:bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/20 rounded-md text-[13px] font-medium transition-colors"
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-[#EF4444]/10 hover:bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/20 rounded-md text-[13px] font-medium transition-colors"
+                      title="أرشفة الفاتورة"
                     >
                       <Archive className="w-4 h-4" />
                       <span>أرشفة</span>
                     </button>
                   )}
+
                   <button
                     type="button"
                     onClick={() => setIsDetailsModalOpen(false)}
-                    className="px-5 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] font-medium transition-colors"
+                    className="px-4 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] font-medium transition-colors"
                   >
                     إغلاق
                   </button>
@@ -1607,7 +1671,7 @@ export default function Invoices() {
       )}
 
       {/* نافذة الدفع الإلكتروني */}
-      {isOnlineModalOpen && onlineSelectedInvoice && (
+      {ENABLE_ONLINE_PAYMENT && isOnlineModalOpen && onlineSelectedInvoice && (
         <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] relative">
             <div className="flex items-center justify-between pb-3 border-b border-[#243047] mb-4">
@@ -1920,6 +1984,63 @@ export default function Invoices() {
         </div>
       )}
 
+      {/* 🌟 نافذة تأكيد إلغاء الفاتورة */}
+      {isCancelConfirmOpen && selectedInvoice && (
+        <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-[#172033] border border-[#243047] max-w-md w-full rounded-xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.7)] space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/10 rounded-md border border-rose-500/20 text-rose-400">
+                <Ban className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-[17px] font-semibold text-[#F8FAFC]">
+                  تأكيد إلغاء الفاتورة
+                </h3>
+                <p className="text-[12px] text-rose-400 font-medium">
+                  تنبيه: سيتم تحويل حالة الفاتورة إلى ملغاة وإسقاط أي مديونية
+                  مرتبطة بها.
+                </p>
+              </div>
+            </div>
+            <p className="text-[13px] text-[#94A3B8] leading-relaxed">
+              هل أنت متأكد من إلغاء الفاتورة رقم{" "}
+              <span className="font-semibold font-mono text-[#F8FAFC]">
+                #{selectedInvoice.id}
+              </span>{" "}
+              الخاصة بالمريض{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                "{selectedInvoice.patient_name}"
+              </span>
+              ؟
+            </p>
+            <div className="flex gap-3 pt-3 border-t border-[#243047]">
+              <button
+                type="button"
+                onClick={() => setIsCancelConfirmOpen(false)}
+                className="flex-1 py-2.5 bg-transparent border border-[#243047] hover:bg-[#111827] text-[#94A3B8] rounded-md text-[13px] transition-colors"
+              >
+                تراجع
+              </button>
+              <button
+                type="button"
+                disabled={cancelInvoiceMutation.isPending}
+                onClick={() => cancelInvoiceMutation.mutate(selectedInvoice.id)}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-2.5 rounded-md text-[13px] font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {cancelInvoiceMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>جاري الإلغاء...</span>
+                  </>
+                ) : (
+                  <span>تأكيد الإلغاء</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* نافذة تأكيد أرشفة الفاتورة */}
       {isArchiveConfirmOpen && selectedInvoice && (
         <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
@@ -1972,6 +2093,7 @@ export default function Invoices() {
           </div>
         </div>
       )}
+
       {/* نافذة تأكيد إلغاء الدفعة المالية */}
       {isVoidModalOpen && paymentToVoid && (
         <div className="fixed inset-0 bg-[#080D18]/80 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">

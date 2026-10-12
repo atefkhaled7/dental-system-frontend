@@ -97,7 +97,7 @@ export default function PublicClinicProfile() {
     mutationFn: async (payload) => {
       const res = await api.post(
         `/public/clinics/${slug}/booking-requests`,
-        payload
+        payload,
       );
       return res.data;
     },
@@ -108,7 +108,7 @@ export default function PublicClinicProfile() {
     onError: (err) => {
       setErrorMessage(
         err.response?.data?.error ||
-          "حدث خطأ أثناء إرسال طلب الحجز، يرجى المحاولة مرة أخرى."
+          "حدث خطأ أثناء إرسال طلب الحجز، يرجى المحاولة مرة أخرى.",
       );
     },
   });
@@ -229,7 +229,7 @@ export default function PublicClinicProfile() {
                     hour: "2-digit",
                     minute: "2-digit",
                     hour12: true,
-                  }
+                  },
                 )}
               </span>
             </div>
@@ -246,7 +246,7 @@ export default function PublicClinicProfile() {
               <a
                 href={`https://wa.me/2${clinic.phone_number.replace(
                   /\D/g,
-                  ""
+                  "",
                 )}`}
                 target="_blank"
                 rel="noreferrer"
@@ -569,12 +569,26 @@ export default function PublicClinicProfile() {
               <span>{errorMessage}</span>
             </div>
           )}
+
+          {/* 🌟 تنبيه إذا كان الحجز معطلاً لانتهاء الاشتراك */}
+          {clinic.is_booking_enabled === false && (
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+              <span>
+                نعتذر، الحجز الإلكتروني غير متاح لهذه العيادة حالياً. يرجى
+                الاتصال بالعيادة هاتفياً لتأكيد موعدك.
+              </span>
+            </div>
+          )}
+
           {/* زر التأكيد */}
           <div className="pt-2">
             <button
               type="submit"
-              disabled={bookingMutation.isPending}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99]"
+              disabled={
+                bookingMutation.isPending || clinic.is_booking_enabled === false
+              }
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
             >
               {bookingMutation.isPending ? (
                 <>
@@ -588,26 +602,63 @@ export default function PublicClinicProfile() {
                 </>
               )}
             </button>
-            <p className="text-[10px] text-slate-500 text-center mt-2">
-              الحجز مجاني وبدون دفع إلكتروني مسبق. يتم تحصيل الرسوم في مقر
-              العيادة عند الزيارة.
+
+            {/* 🌟 الإقرار القانوني لحماية العيادة وفقاً لقانون 151/2020 */}
+            <p className="text-[11px] text-slate-400 text-center mt-3 leading-relaxed">
+              بإرسال طلب الحجز، أنت توافق على مشاركة بيانات الاتصال مع إدارة
+              العيادة لغرض تأكيد وتنسيق الموعد، وتوافق على{" "}
+              <Link
+                to="/terms"
+                target="_blank"
+                className="text-teal-400 hover:underline"
+              >
+                شروط الاستخدام
+              </Link>{" "}
+              و{" "}
+              <Link
+                to="/privacy"
+                target="_blank"
+                className="text-teal-400 hover:underline"
+              >
+                سياسة الخصوصية
+              </Link>
+              .
             </p>
           </div>
         </form>
       </main>
 
-      {/* 🌟 3. الفوتر البسيط */}
-      <footer className="border-t border-slate-800/60 py-4 text-center text-xs text-slate-500">
-        مدعوم بواسطة منصة{" "}
-        <a
-          href="https://curosta.com"
-          target="_blank"
-          rel="noreferrer"
-          className="font-bold text-teal-400 hover:text-teal-300 hover:underline transition-colors inline-block"
-        >
-          CUROSTA
-        </a>{" "}
-        لإدارة عيادات الأسنان
+      {/* 🌟 3. الفوتر مع روابط الشروط والخصوصية */}
+      <footer className="border-t border-slate-800/60 py-5 text-center text-xs text-slate-500 space-y-2">
+        <div>
+          مدعوم بواسطة منصة{" "}
+          <a
+            href="https://curosta.com"
+            target="_blank"
+            rel="noreferrer"
+            className="font-bold text-teal-400 hover:text-teal-300 hover:underline transition-colors inline-block"
+          >
+            CUROSTA
+          </a>{" "}
+          لإدارة عيادات الأسنان
+        </div>
+        <div className="flex items-center justify-center gap-3 text-[11px] text-slate-500">
+          <Link
+            to="/terms"
+            target="_blank"
+            className="hover:text-slate-300 hover:underline transition-colors"
+          >
+            شروط الخدمة
+          </Link>
+          <span>•</span>
+          <Link
+            to="/privacy"
+            target="_blank"
+            className="hover:text-slate-300 hover:underline transition-colors"
+          >
+            سياسة الخصوصية
+          </Link>
+        </div>
       </footer>
     </div>
   );

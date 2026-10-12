@@ -45,6 +45,9 @@ const FDI_TEETH = [
   45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38,
 ];
 
+// الحد الأقصى المسموح به لحجم الصورة (4 ميجابايت للتوافق الصارم مع Vercel Serverless)
+const MAX_IMAGE_SIZE_BYTES = 4 * 1024 * 1024;
+
 // 🔒 مكوّن عرض الصورة الآمن
 function AuthenticatedImage({ imageId, alt, className }) {
   const [blobUrl, setBlobUrl] = useState(null);
@@ -107,7 +110,7 @@ export default function MedicalImages({
 }) {
   const { user } = useAuth();
   const canEdit = ["ClinicAdmin", "Doctor"].includes(user?.role);
-  
+
   const queryClient = useQueryClient();
 
   // الفلاتر
@@ -159,7 +162,7 @@ export default function MedicalImages({
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
-        }
+        },
       );
       return res.data;
     },
@@ -190,7 +193,7 @@ export default function MedicalImages({
       if (showToast)
         showToast(
           "تمت أرشفة الصورة الطبية بنجاح مع الحفاظ على السجل",
-          "success"
+          "success",
         );
     },
     onError: (err) => {
@@ -216,11 +219,29 @@ export default function MedicalImages({
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        if (showToast)
-          showToast("حجم الصورة يتجاوز الحد المسموح (10 ميجابايت)", "error");
+      // ✅ التحقق الفوري من سقف الـ 4MB
+      if (file.size > MAX_IMAGE_SIZE_BYTES) {
+        if (uploadData.previewUrl) {
+          URL.revokeObjectURL(uploadData.previewUrl);
+        }
+
+        setUploadData((prev) => ({
+          ...prev,
+          file: null,
+          previewUrl: null,
+        }));
+
+        if (showToast) {
+          showToast(
+            "حجم الصورة يتجاوز الحد المسموح (4 ميجابايت). يرجى اختيار ملف أصغر.",
+            "error",
+          );
+        }
+
+        e.target.value = "";
         return;
       }
+
       if (uploadData.previewUrl) {
         URL.revokeObjectURL(uploadData.previewUrl);
       }
@@ -520,7 +541,7 @@ export default function MedicalImages({
             <form onSubmit={handleUploadSubmit} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
-                  ملف الصورة / الأشعة * (JPG, PNG, WEBP - بحد أقصى 10MB)
+                  ملف الصورة / الأشعة * (JPG, PNG, WEBP - بحد أقصى 4MB)
                 </label>
                 <input
                   type="file"

@@ -1,13 +1,24 @@
 import { useState, useMemo } from "react";
 import { Outlet } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import Sidebar from "../components/Sidebar";
-import { Menu, Activity, AlertTriangle, Lock, MessageCircle } from "lucide-react";
+import api from "../api/axios";
+import {
+  Menu,
+  Activity,
+  AlertTriangle,
+  Lock,
+  MessageCircle,
+  LifeBuoy,
+} from "lucide-react";
+import SupportModal from "./SupportModal";
 
 export default function Layout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
 
-  // 🌟 جلب بيانات المستخدم لمعرفة حالة الاشتراك
-  const user = useMemo(() => {
+  // 1. قراءة المريض الافتراضي من localStorage كـ fallback أولي
+  const localUser = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem("user") || "{}");
     } catch {
@@ -15,15 +26,39 @@ export default function Layout() {
     }
   }, []);
 
-  // 🌟 حساب حالة الاشتراك والأيام المتبقية
+  // 🌟 2. استعلام ذكي لتحديث حالة الجلسة وتاريخ الاشتراك لحظياً (خصوصاً عند الرجوع للتبويب)
+  const { data: freshUserData } = useQuery({
+    queryKey: ["current-user-session", localUser.id],
+    queryFn: async () => {
+      const res = await api.get("/auth/me");
+      if (res.data?.user) {
+        // مزامنة الـ localStorage فوراً بالبيانات الجديدة
+        const updated = { ...localUser, ...res.data.user };
+        localStorage.setItem("user", JSON.stringify(updated));
+        return updated;
+      }
+      return res.data;
+    },
+    staleTime: 5 * 60 * 1000, // إعادة فحص كل 5 دقائق
+    refetchOnWindowFocus: true, // تحديث فوري بمجرد رجوع العميل للتبويب بعد التجديد!
+    retry: false,
+  });
+
+  const currentUser = freshUserData || localUser;
+
+  // 🌟 3. حساب حالة الاشتراك والأيام المتبقية
   const subscriptionState = useMemo(() => {
     // السوبر أدمن معندوش اشتراك عيادة
-    if (!user || user.role === "SuperAdmin" || !user.subscription_ends_at) {
+    if (
+      !currentUser ||
+      currentUser.role === "SuperAdmin" ||
+      !currentUser.subscription_ends_at
+    ) {
       return { show: false };
     }
 
     const now = new Date();
-    const endDate = new Date(user.subscription_ends_at);
+    const endDate = new Date(currentUser.subscription_ends_at);
     const diffTime = endDate.getTime() - now.getTime();
     const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -37,12 +72,12 @@ export default function Layout() {
     }
 
     return { show: false };
-  }, [user]);
+  }, [currentUser]);
 
-  // رقم واتساب الدعم لتجديد الاشتراك (حط رقمك هنا)
-  const whatsappNumber = "201503076555"; 
+  // رقم واتساب الدعم لتجديد الاشتراك
+  const whatsappNumber = "201503076555";
   const renewUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-    `مرحباً كوروستا، أرغب في تجديد اشتراك عيادتي (${user?.name || ""})`
+    `مرحباً كوروستا، أرغب في تجديد اشتراك عيادتي (${currentUser?.name || ""})`,
   )}`;
 
   return (
@@ -50,7 +85,7 @@ export default function Layout() {
       className="min-h-screen bg-[var(--bg-app)] flex flex-col lg:flex-row"
       dir="rtl"
     >
-      {/* 🌟 شريط علوي للموبايل: متوافق مع نظام الطبقات بدون شادو */}
+      {/* 🌟 شريط علوي للموبايل */}
       <header className="lg:hidden bg-[var(--bg-surface)] border-b border-[var(--border-default)] p-3.5 flex items-center justify-between sticky top-0 z-30">
         <button
           onClick={() => setIsMobileMenuOpen(true)}
@@ -97,7 +132,8 @@ export default function Layout() {
                 <>
                   <Lock className="w-4 h-4 text-red-400 shrink-0" />
                   <span>
-                    انتهت الفترة التجريبية. النظام الآن في وضع <b>القراءة فقط</b> — يمكنك استعراض وتصدير بياناتك.
+                    انتهت الفترة التجريبية. النظام الآن في وضع{" "}
+                    <b>القراءة فقط</b> — يمكنك استعراض وتصدير بياناتك.
                   </span>
                 </>
               ) : (
@@ -109,8 +145,8 @@ export default function Layout() {
                       {subscriptionState.daysLeft === 1
                         ? "يوم واحد"
                         : subscriptionState.daysLeft === 2
-                        ? "يومان"
-                        : `${subscriptionState.daysLeft} أيام`}
+                          ? "يومان"
+                          : `${subscriptionState.daysLeft} أيام`}
                     </b>{" "}
                     على انتهاء الفترة التجريبية للعيادة.
                   </span>
@@ -129,7 +165,9 @@ export default function Layout() {
               }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
-              {subscriptionState.type === "expired" ? "تجديد الاشتراك" : "تواصل للتجديد"}
+              {subscriptionState.type === "expired"
+                ? "تجديد الاشتراك"
+                : "تواصل للتجديد"}
             </a>
           </div>
         )}
@@ -138,6 +176,23 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* زرار الدعم العائم في كل صفحات السيستم */}
+      <button
+        onClick={() => setIsSupportOpen(true)}
+        className="fixed bottom-5 left-5 z-40 bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] text-[var(--primary-base)] border border-[var(--border-default)] p-3 rounded-full shadow-lg flex items-center gap-2 text-xs font-semibold transition hover:scale-105"
+        title="المساعدة والدعم الفني"
+      >
+        <LifeBuoy className="w-5 h-5 text-[var(--primary-base)] animate-pulse" />
+        <span className="hidden sm:inline text-[var(--text-main)]">
+          الدعم الفني
+        </span>
+      </button>
+
+      <SupportModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+      />
     </div>
   );
 }

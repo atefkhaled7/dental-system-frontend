@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import { printInvoice } from "../utils/printInvoice";
+import OnboardingChecklist from "../components/OnboardingChecklist";
 import {
   DollarSign,
   Calendar as CalendarIcon,
@@ -278,6 +279,9 @@ export default function Dashboard() {
           <span>{todayFormatted}</span>
         </div>
       </div>
+
+      {/* 🌟 قائمة إعداد العيادة */}
+      {user?.role === "ClinicAdmin" && <OnboardingChecklist />}
       {/* 🔔 تنبيه طلبات الحجز أونلاين الجديدة */}
       {stats.pending_bookings_count > 0 && (
         <div className="bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/5">

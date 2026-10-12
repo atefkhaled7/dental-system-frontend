@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Layout from "./components/Layout";
@@ -16,52 +16,79 @@ import AuditLogs from "./pages/AuditLogs";
 import PublicClinicProfile from "./pages/PublicClinicProfile";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
+import Services from "./pages/Services";
+import Reports from "./pages/Reports";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { useAuth } from "./context/AuthContext";
+
+// مكوّن لتوجيه الصفحة الرئيسية حسب الدور
+function RoleBasedIndex() {
+  const { user } = useAuth();
+  if (user?.role === "SuperAdmin") {
+    return <Navigate to="/clinics" replace />;
+  }
+  return <Dashboard />;
+}
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/payment-status" element={<PaymentStatus />} />
-        <Route path="/c/:slug" element={<PublicClinicProfile />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
-        <Route path="/terms" element={<TermsOfService />} />
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/payment-status" element={<PaymentStatus />} />
+          <Route path="/c/:slug" element={<PublicClinicProfile />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
 
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Layout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="patients" element={<Patients />} />
-          <Route path="patients/:id" element={<PatientDetails />} />
-          <Route path="appointments" element={<Appointments />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="lab-orders" element={<LabOrders />} />
-          <Route path="staff" element={<Staff />} />
           <Route
-            path="clinics"
+            path="/"
             element={
-              <ProtectedRoute allowedRoles={["SuperAdmin"]}>
-                <Clinics />
+              <ProtectedRoute>
+                <Layout />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="audit-logs"
-            element={
-              <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
-                <AuditLogs />
-              </ProtectedRoute>
-            }
-          />
-        </Route>
+          >
+            {/* التوجيه الذكي: السوبر أدمن يذهب لإدارة العيادات، وأدوار العيادة للداشبورد */}
+            <Route index element={<RoleBasedIndex />} />
 
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+            <Route path="patients" element={<Patients />} />
+            <Route path="patients/:id" element={<PatientDetails />} />
+            <Route path="appointments" element={<Appointments />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="lab-orders" element={<LabOrders />} />
+            <Route path="services" element={<Services />} />
+            <Route path="staff" element={<Staff />} />
+            <Route
+              path="clinics"
+              element={
+                <ProtectedRoute allowedRoles={["SuperAdmin"]}>
+                  <Clinics />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="audit-logs"
+              element={
+                <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
+                  <AuditLogs />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="reports"
+              element={
+                <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
+                  <Reports />
+                </ProtectedRoute>
+              }
+            />
+          </Route>
+
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
