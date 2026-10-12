@@ -32,23 +32,27 @@ import {
   Globe,
 } from "lucide-react";
 
-const getCurrentDateTimeLocal = () => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
+// دالة آمنة لتحويل أي تاريخ لصيغة datetime-local
+const formatToDateTimeLocal = (dateInput = new Date()) => {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-const getTodayString = () => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().split("T")[0];
-};
-
-const getTomorrowString = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().split("T")[0];
+// جلب تاريخ اليوم أو الغد بتوقيت مصر دائماً
+const getCairoDateString = (dayOffset = 0) => {
+  const target = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(target);
 };
 
 export default function Appointments() {
@@ -64,7 +68,7 @@ export default function Appointments() {
       });
       return res.data?.pagination?.total || 0;
     },
-    refetchInterval: 30000, // فحص تلقائي كل 30 ثانية
+    refetchInterval: 30000,
   });
   const pendingRequestsCount = pendingRequestsData || 0;
   const queryClient = useQueryClient();
@@ -108,7 +112,7 @@ export default function Appointments() {
     itemDescription: "كشف عيادة / استشارة",
     itemPrice: "",
     paidAmount: "",
-    autoPrint: false, // 👈 غير مفعل افتراضياً
+    autoPrint: false,
   });
 
   // حالة مودال تأكيد الحذف
@@ -145,14 +149,14 @@ export default function Appointments() {
     if (!newTab) {
       showToast(
         "يرجى السماح بالنوافذ المنبثقة لهذا الموقع ثم المحاولة مرة أخرى.",
-        "error"
+        "error",
       );
       return;
     }
     newTab.opener = null;
     try {
       const res = await api.get(
-        `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`
+        `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`,
       );
       if (res.data?.url) {
         newTab.location.href = res.data.url;
@@ -165,7 +169,7 @@ export default function Appointments() {
       newTab.close();
       showToast(
         err.response?.data?.error || "فشل إنشاء رابط الواتساب.",
-        "error"
+        "error",
       );
     }
   };
@@ -210,7 +214,6 @@ export default function Appointments() {
   const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
   const filteredAppointments = appointments;
 
-  // لو المستخدم في صفحة أعلى من 1 والصفحة فضيت، يرجع تلقائياً للصفحة السابقة
   useEffect(() => {
     if (!isLoading && page > 1 && appointments.length === 0) {
       setPage((p) => Math.max(1, p - 1));
@@ -231,7 +234,7 @@ export default function Appointments() {
     queryKey: ["doctors"],
     queryFn: async () => {
       const res = await api.get("/auth/doctors");
-      return res.data.doctors || [];
+      return res.data?.doctors || [];
     },
   });
 
@@ -246,7 +249,6 @@ export default function Appointments() {
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       showToast("تم تحديث حالة الميعاد بنجاح", "success");
 
-      // لو الموعد اكتمل ولسه ملوش فاتورة، نفتح مودال الفاتورة تلقائياً
       if (status === "completed" && appointment && !appointment.invoice_id) {
         setInvoiceModal({
           isOpen: true,
@@ -254,6 +256,7 @@ export default function Appointments() {
           itemDescription: "كشف عيادة / استشارة",
           itemPrice: "",
           paidAmount: "",
+          autoPrint: false,
         });
       }
     },
@@ -284,7 +287,7 @@ export default function Appointments() {
     onError: (err) => {
       showToast(
         err.response?.data?.error || "حدث خطأ أثناء إعادة الجدولة",
-        "error"
+        "error",
       );
     },
   });
@@ -306,11 +309,11 @@ export default function Appointments() {
         itemDescription: "كشف عيادة / استشارة",
         itemPrice: "",
         paidAmount: "",
+        autoPrint: false,
       });
 
       showToast("تم إصدار الفاتورة بنجاح", "success");
 
-      // فتح نافذة الطباعة فقط إذا اختار المستخدم ذلك
       if (invoiceModal.autoPrint) {
         try {
           const createdInvoiceId = data?.invoice?.id;
@@ -328,7 +331,7 @@ export default function Appointments() {
     onError: (err) => {
       showToast(
         err.response?.data?.error || "حدث خطأ أثناء إنشاء الفاتورة",
-        "error"
+        "error",
       );
     },
   });
@@ -351,7 +354,7 @@ export default function Appointments() {
     onError: (error) => {
       showToast(
         error.response?.data?.error || "حدث خطأ أثناء تحديث مدة الكشف",
-        "error"
+        "error",
       );
     },
   });
@@ -372,10 +375,13 @@ export default function Appointments() {
     },
   });
 
+  // عرض التاريخ والوقت بتوقيت القاهرة دائماً
   const formatDateTime = (dateString) => {
     const d = new Date(dateString);
-    const date = d.toLocaleDateString("en-GB");
+    if (isNaN(d.getTime())) return "-";
+    const date = d.toLocaleDateString("en-GB", { timeZone: "Africa/Cairo" });
     const time = d.toLocaleTimeString("en-US", {
+      timeZone: "Africa/Cairo",
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
@@ -420,7 +426,7 @@ export default function Appointments() {
             <button
               onClick={() => {
                 setDefaultDuration(
-                  durationSettings?.default_appointment_duration || 30
+                  durationSettings?.default_appointment_duration || 30,
                 );
                 setDurationSettingsOpen(true);
               }}
@@ -439,6 +445,7 @@ export default function Appointments() {
           </button>
         </div>
       </div>
+
       {/* 🌟 شريط التبديل بين جدول المواعيد وطلبات الحجز العامة */}
       <div className="flex border-b border-[var(--border-default)] gap-6">
         <button
@@ -491,9 +498,10 @@ export default function Appointments() {
                     setDateFilterMode(value);
                     setPage(1);
                     if (value === "all") setFilterDate("");
-                    else if (value === "today") setFilterDate(getTodayString());
+                    else if (value === "today")
+                      setFilterDate(getCairoDateString(0));
                     else if (value === "tomorrow")
-                      setFilterDate(getTomorrowString());
+                      setFilterDate(getCairoDateString(1));
                     else if (value === "custom") setFilterDate("");
                   }}
                   className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
@@ -702,7 +710,7 @@ export default function Appointments() {
                             )}
                           </td>
 
-                          {/* حالة الموعد والفوترة - شكل نظيف وبدون أزرار ضخمة */}
+                          {/* حالة الموعد والفوترة */}
                           <td className="py-3.5 px-5">
                             <div className="flex flex-col items-start gap-1">
                               <span
@@ -714,14 +722,13 @@ export default function Appointments() {
                                 {statusConfig[status]?.label || apt.status}
                               </span>
 
-                              {/* مؤشر الفاتورة الأنيق */}
                               {hasInvoice ? (
                                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
                                   <Check className="w-3 h-3" />
                                   <span>
                                     (
                                     {parseFloat(
-                                      apt.invoice_total || 0
+                                      apt.invoice_total || 0,
                                     ).toLocaleString("en-US")}{" "}
                                     ج.م)
                                   </span>
@@ -740,7 +747,7 @@ export default function Appointments() {
                               {status === "scheduled" && (
                                 <>
                                   <button
-                                    title="اكتمل الكشف (سيفتح نافذة الفاتورة والطباعة تلقائياً)"
+                                    title="اكتمل الكشف"
                                     onClick={() =>
                                       updateStatusMutation.mutate({
                                         id: apt.id,
@@ -781,7 +788,7 @@ export default function Appointments() {
                                 </>
                               )}
 
-                              {/* إعادة الجدولة (متاحة لغير المكتمل) */}
+                              {/* إعادة الجدولة */}
                               {status !== "completed" && (
                                 <button
                                   title="إعادة جدولة الموعد"
@@ -791,7 +798,9 @@ export default function Appointments() {
                                       appointmentId: apt.id,
                                       patientName: apt.patient_name,
                                       currentDate: apt.appointment_date,
-                                      newDate: getCurrentDateTimeLocal(),
+                                      newDate: formatToDateTimeLocal(
+                                        apt.appointment_date,
+                                      ),
                                     })
                                   }
                                   className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
@@ -800,7 +809,7 @@ export default function Appointments() {
                                 </button>
                               )}
 
-                              {/* 🖨️ زرار الفاتورة / الطباعة المباشرة */}
+                              {/* زرار الفاتورة / الطباعة */}
                               {hasInvoice ? (
                                 <button
                                   title="طباعة الفاتورة 🖨️"
@@ -828,6 +837,7 @@ export default function Appointments() {
                                       itemDescription: "كشف عيادة / استشارة",
                                       itemPrice: "",
                                       paidAmount: "",
+                                      autoPrint: false,
                                     })
                                   }
                                   className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
@@ -836,7 +846,7 @@ export default function Appointments() {
                                 </button>
                               )}
 
-                              {/* 📲 زرار وقائمة الواتساب */}
+                              {/* زرار وقائمة الواتساب */}
                               <div>
                                 <button
                                   title="مراسلة المريض عبر واتساب"
@@ -885,7 +895,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "feedback"
+                                                "feedback",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -900,7 +910,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "follow_up"
+                                                "follow_up",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
@@ -918,7 +928,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "no_show"
+                                                "no_show",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -931,7 +941,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "reminder"
+                                                "reminder",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
@@ -947,7 +957,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "confirmation"
+                                                "confirmation",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
@@ -960,7 +970,7 @@ export default function Appointments() {
                                             onClick={() =>
                                               handleSendWhatsApp(
                                                 apt.id,
-                                                "reminder"
+                                                "reminder",
                                               )
                                             }
                                             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
@@ -975,11 +985,11 @@ export default function Appointments() {
                                         </div>
                                       )}
                                     </div>,
-                                    document.body
+                                    document.body,
                                   )}
                               </div>
 
-                              {/* حذف الموعد (للـ ClinicAdmin فقط) */}
+                              {/* حذف الموعد */}
                               {user?.role === "ClinicAdmin" && (
                                 <button
                                   title="حذف الموعد نهائياً"
@@ -1004,10 +1014,10 @@ export default function Appointments() {
                 </table>
               </div>
             )}
-            {/* 🌟 شريط الـ Pagination (الزراير على اليمين في الـ RTL) */}
+
+            {/* 🌟 شريط الـ Pagination */}
             {!isLoading && pagination.total > 0 && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
-                {/* الزراير على اليمين */}
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -1034,7 +1044,6 @@ export default function Appointments() {
                   </button>
                 </div>
 
-                {/* عرض الإجمالي على الشمال */}
                 <div className="text-xs">
                   عرض{" "}
                   <span className="font-bold text-[var(--text-main)]">
@@ -1053,6 +1062,7 @@ export default function Appointments() {
       ) : (
         <BookingRequestsView showToast={showToast} />
       )}
+
       {/* 🌟 نافذة إعادة الجدولة */}
       {rescheduleData.isOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1084,7 +1094,7 @@ export default function Appointments() {
               <input
                 type="datetime-local"
                 required
-                min={getCurrentDateTimeLocal()}
+                min={formatToDateTimeLocal(new Date())}
                 value={rescheduleData.newDate}
                 onChange={(e) =>
                   setRescheduleData({
@@ -1108,12 +1118,21 @@ export default function Appointments() {
               <button
                 type="button"
                 disabled={rescheduleMutation.isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (!rescheduleData.newDate) {
+                    showToast("يرجى تحديد الموعد الجديد", "error");
+                    return;
+                  }
+                  const newDateObj = new Date(rescheduleData.newDate);
+                  if (isNaN(newDateObj.getTime())) {
+                    showToast("تاريخ الموعد الجديد غير صالح", "error");
+                    return;
+                  }
                   rescheduleMutation.mutate({
                     id: rescheduleData.appointmentId,
-                    newDate: new Date(rescheduleData.newDate).toISOString(),
-                  })
-                }
+                    newDate: newDateObj.toISOString(),
+                  });
+                }}
                 className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {rescheduleMutation.isPending
@@ -1160,13 +1179,23 @@ export default function Appointments() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (
-                  !invoiceModal.itemPrice ||
-                  parseFloat(invoiceModal.itemPrice) <= 0
-                ) {
+                const price = parseFloat(invoiceModal.itemPrice);
+                if (isNaN(price) || price <= 0) {
                   showToast("يرجى إدخال سعر صحيح للبند", "error");
                   return;
                 }
+                const paid = invoiceModal.paidAmount
+                  ? parseFloat(invoiceModal.paidAmount)
+                  : 0;
+
+                if (paid > price) {
+                  showToast(
+                    "المبلغ المدفوع لا يمكن أن يكون أكبر من إجمالي الفاتورة",
+                    "error",
+                  );
+                  return;
+                }
+
                 const payload = {
                   patient_id: invoiceModal.appointment.patient_id,
                   appointment_id: invoiceModal.appointment.id,
@@ -1176,14 +1205,13 @@ export default function Appointments() {
                     {
                       description: invoiceModal.itemDescription.trim(),
                       quantity: 1,
-                      unit_price: parseFloat(invoiceModal.itemPrice),
+                      unit_price: price,
                     },
                   ],
                   initial_payment:
-                    invoiceModal.paidAmount &&
-                    parseFloat(invoiceModal.paidAmount) > 0
+                    paid > 0
                       ? {
-                          amount: parseFloat(invoiceModal.paidAmount),
+                          amount: paid,
                           payment_method: "cash",
                           notes: "دفعة فورية عند تحويل الموعد",
                         }
@@ -1398,13 +1426,13 @@ export default function Appointments() {
               <input
                 type="number"
                 min="5"
-                max="240"
+                max="480"
                 value={defaultDuration}
                 onChange={(e) => setDefaultDuration(e.target.value)}
                 className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
               />
               <div className="flex flex-wrap gap-2 mt-3">
-                {[15, 30, 45, 60].map((minutes) => (
+                {[15, 30, 45, 60, 90, 120].map((minutes) => (
                   <button
                     key={minutes}
                     type="button"
@@ -1420,7 +1448,7 @@ export default function Appointments() {
                 ))}
               </div>
               <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                مسموح من 5 إلى 240 دقيقة.
+                مسموح من 5 إلى 480 دقيقة (8 ساعات).
               </p>
             </div>
             <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
@@ -1436,10 +1464,10 @@ export default function Appointments() {
                 disabled={updateDurationMutation.isPending}
                 onClick={() => {
                   const value = Number(defaultDuration);
-                  if (!Number.isInteger(value) || value < 5 || value > 240) {
+                  if (!Number.isInteger(value) || value < 5 || value > 480) {
                     showToast(
-                      "مدة الكشف يجب أن تكون بين 5 و240 دقيقة",
-                      "error"
+                      "مدة الكشف يجب أن تكون بين 5 و480 دقيقة",
+                      "error",
                     );
                     return;
                   }

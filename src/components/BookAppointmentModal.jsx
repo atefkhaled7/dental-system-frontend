@@ -18,10 +18,19 @@ import {
   Loader2,
 } from "lucide-react";
 
-const getCurrentDateTimeLocal = () => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
+// دالة آمنة لتحويل أي تاريخ أو ISO String لصيغة input datetime-local (YYYY-MM-DDTHH:mm)
+const formatToDateTimeLocal = (dateInput) => {
+  if (!dateInput) return "";
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return "";
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 export default function BookAppointmentModal({
@@ -52,12 +61,19 @@ export default function BookAppointmentModal({
     enabled: isOpen,
   });
 
-
-
   // حالة الفورم
-  const [selectedPatient, setSelectedPatient] = useState(null); // المريض المختار
+  const [selectedPatient, setSelectedPatient] = useState(null);
   const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  // Debounce للبحث لمنع الريكويستات الزائدة مع كل حرف
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(patientSearchQuery.trim());
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [patientSearchQuery]);
 
   // بيانات المريض الجديد (لو مش مسجل)
   const [newPatientData, setNewPatientData] = useState({
@@ -67,29 +83,29 @@ export default function BookAppointmentModal({
     medical_alerts: "",
   });
 
-  // جلب المرضى بالبحث المباشر من السيرفر (Server-Side Autocomplete)
+  // جلب المرضى بالبحث المباشر من السيرفر
   const { data: patientsData, isFetching: isSearchingPatients } = useQuery({
-    queryKey: ["patients-autocomplete", patientSearchQuery],
+    queryKey: ["patients-autocomplete", debouncedSearch],
     queryFn: async () => {
-      if (!patientSearchQuery.trim()) return [];
+      if (!debouncedSearch) return [];
       const res = await api.get("/patients", {
         params: {
-          search: patientSearchQuery.trim(),
+          search: debouncedSearch,
           page: 1,
-          limit: 8, // أعلى 8 نتائج كافية جداً للقائمة المنسدلة
+          limit: 8,
         },
       });
       return res.data?.patients || [];
     },
-    enabled: isOpen && !selectedPatient && patientSearchQuery.trim().length > 0,
-    staleTime: 30000, // كاش لمدة 30 ثانية لتوفير الريكويستات
+    enabled: isOpen && !selectedPatient && debouncedSearch.length > 0,
+    staleTime: 30000,
   });
 
   const filteredPatients = patientsData || [];
 
   // بيانات الموعد
   const [doctorId, setDoctorId] = useState(initialDoctorId || "");
-  const [appointmentDate, setAppointmentDate] = useState(initialDate || "");
+  const [appointmentDate, setAppointmentDate] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [notes, setNotes] = useState("");
 
@@ -107,8 +123,11 @@ export default function BookAppointmentModal({
         setDoctorId(initialDoctorId);
       }
 
-      setAppointmentDate(initialDate || getCurrentDateTimeLocal());
+      const initialFormatted = initialDate
+        ? formatToDateTimeLocal(initialDate)
+        : formatToDateTimeLocal(new Date());
 
+      setAppointmentDate(initialFormatted);
       setErrorMessage("");
     }
   }, [isOpen, clinicSettings, initialDoctorId, initialDate]);
@@ -123,15 +142,6 @@ export default function BookAppointmentModal({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // // تصفية المرضى حسب البحث
-  // const filteredPatients = patientSearchQuery.trim()
-  //   ? allPatients.filter(
-  //       (p) =>
-  //         p.name?.toLowerCase().includes(patientSearchQuery.toLowerCase()) ||
-  //         p.phone_number?.includes(patientSearchQuery.trim())
-  //     )
-  //   : [];
 
   // دالة اختيار مريض موجود
   const handleSelectPatient = (patient) => {
@@ -169,6 +179,7 @@ export default function BookAppointmentModal({
   const handleClose = () => {
     setSelectedPatient(null);
     setPatientSearchQuery("");
+    setDebouncedSearch("");
     setNewPatientData({
       phone_number: "",
       gender: "Male",
@@ -196,20 +207,34 @@ export default function BookAppointmentModal({
       return;
     }
 
+    const apptDateObj = new Date(appointmentDate);
+    if (isNaN(apptDateObj.getTime())) {
+      setErrorMessage("صيغة تاريخ ووقت الموعد غير صالحة");
+      return;
+    }
+
+    const duration = parseInt(durationMinutes, 10);
+    if (isNaN(duration) || duration < 5 || duration > 480) {
+      setErrorMessage("مدة الكشف يجب أن تكون بين 5 و 480 دقيقة");
+      return;
+    }
+
     const payload = {
       doctor_id: doctorId,
-      appointment_date: new Date(appointmentDate).toISOString(),
-      duration_minutes: Number(durationMinutes),
+      appointment_date: apptDateObj.toISOString(),
+      duration_minutes: duration,
       notes: notes.trim() || null,
     };
 
     if (selectedPatient) {
-      // مريض مسجل مسبقاً
       payload.patient_id = selectedPatient.id;
     } else {
-      // مريض جديد
       if (!patientSearchQuery.trim() || patientSearchQuery.trim().length < 2) {
         setErrorMessage("اسم المريض الجديد مطلوب ويجب ألا يقل عن حرفين");
+        return;
+      }
+      if (patientSearchQuery.trim().length > 100) {
+        setErrorMessage("اسم المريض يجب ألا يتجاوز 100 حرف");
         return;
       }
       if (
@@ -217,7 +242,7 @@ export default function BookAppointmentModal({
         newPatientData.phone_number.trim().length < 10
       ) {
         setErrorMessage(
-          "رقم هاتف المريض الجديد مطلوب ويجب ألا يقل عن 10 أرقام"
+          "رقم هاتف المريض الجديد مطلوب ويجب ألا يقل عن 10 أرقام",
         );
         return;
       }
@@ -319,7 +344,7 @@ export default function BookAppointmentModal({
                 </div>
 
                 {/* القائمة المنسدلة للنتائج */}
-                {isDropdownOpen && patientSearchQuery.trim() && (
+                {isDropdownOpen && debouncedSearch && (
                   <div className="absolute top-full left-0 right-0 mt-1.5 max-h-56 overflow-y-auto bg-[#070b14] border border-slate-800 rounded-xl shadow-xl z-20 divide-y divide-slate-800/50">
                     {isSearchingPatients ? (
                       <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
@@ -490,18 +515,18 @@ export default function BookAppointmentModal({
                 <input
                   type="number"
                   min="5"
-                  max="240"
+                  max="480"
                   value={durationMinutes}
                   onChange={(e) => setDurationMinutes(e.target.value)}
                   className="w-24 px-3 py-2.5 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none text-center"
                 />
-                <div className="flex items-center gap-1">
-                  {[15, 30, 45, 60].map((mins) => (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[15, 30, 45, 60, 90, 120].map((mins) => (
                     <button
                       key={mins}
                       type="button"
                       onClick={() => setDurationMinutes(mins)}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                         Number(durationMinutes) === mins
                           ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
                           : "bg-slate-800/40 text-slate-400 border-slate-800 hover:bg-slate-800"
