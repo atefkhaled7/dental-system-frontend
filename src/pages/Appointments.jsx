@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import BookAppointmentModal from "../components/BookAppointmentModal";
 import BookingRequestsView from "../components/BookingRequestsView";
-import { createPortal } from "react-dom";
+import MedicalAlertBanner from "../components/MedicalAlertBanner";
 import {
   useQuery,
   useMutation,
@@ -15,11 +16,11 @@ import {
   Calendar as CalendarIcon,
   Plus,
   Clock,
-  User,
   CheckCircle2,
   XCircle,
   AlertCircle,
   AlertTriangle,
+  AlertOctagon,
   X,
   Check,
   Loader2,
@@ -30,9 +31,19 @@ import {
   Trash2,
   MessageCircle,
   Globe,
+  ChevronRight,
+  ChevronLeft,
+  LayoutGrid,
+  List,
+  Settings2,
+  Armchair,
+  Play,
+  UserCheck,
+  ExternalLink,
+  CalendarOff,
+  Stethoscope,
 } from "lucide-react";
 
-// دالة آمنة لتحويل أي تاريخ لصيغة datetime-local
 const formatToDateTimeLocal = (dateInput = new Date()) => {
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return "";
@@ -44,7 +55,6 @@ const formatToDateTimeLocal = (dateInput = new Date()) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-// جلب تاريخ اليوم أو الغد بتوقيت مصر دائماً
 const getCairoDateString = (dayOffset = 0) => {
   const target = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000);
   return new Intl.DateTimeFormat("en-CA", {
@@ -55,11 +65,127 @@ const getCairoDateString = (dayOffset = 0) => {
   }).format(target);
 };
 
-export default function Appointments() {
-  const [isBookModalOpen, setIsBookModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("calendar"); // calendar أو requests
+// تحويل تاريخ YYYY-MM-DD إلى كائن تاريخ وإضافة أيام
+const addDaysToDateStr = (dateStr, days) => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().slice(0, 10);
+};
 
-  // جلب عدد طلبات الحجز المعلقة لعرضها كـ Badge أحمر
+const ARABIC_WEEKDAYS = [
+  "الأحد",
+  "الاثنين",
+  "الثلاثاء",
+  "الأربعاء",
+  "الخميس",
+  "الجمعة",
+  "السبت",
+];
+
+export default function Appointments() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  // استخراج الفاتورة المرتبطة بالموعد من بيانات React Query المخزنة
+  const getCachedInvoiceId = (appointmentId) => {
+    if (!appointmentId) return null;
+
+    const queryGroups = [
+      queryClient.getQueriesData({
+        queryKey: ["calendar-appointments"],
+      }),
+      queryClient.getQueriesData({
+        queryKey: ["appointments"],
+      }),
+    ];
+
+    for (const queries of queryGroups) {
+      for (const [, data] of queries) {
+        const appointment = data?.appointments?.find(
+          (item) => item.id === appointmentId,
+        );
+
+        if (appointment?.invoice_id) {
+          return appointment.invoice_id;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // حالة فتح مودال الحجز مع تعبئة مسبقة للطبيب والوقت عند الضغط على خانة فارغة
+  const [bookModalState, setBookModalState] = useState({
+    isOpen: false,
+    initialDoctorId: "",
+    initialDate: "",
+  });
+
+  // التبديل بين تبويب التقويم وطلبات الحجز الأونلاين
+  const [activeTab, setActiveTab] = useState("calendar"); // calendar | requests
+  // التبديل بين العرض اليومي بأعمدة الأطباء وعرض القائمة الشاملة
+  const [viewMode, setViewMode] = useState("grid"); // grid | list
+
+  // التاريخ المختار في تقويم الأعمدة اليومي
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() =>
+    getCairoDateString(0),
+  );
+
+  // الدرج الجانبي للموعد (Slide-over Drawer)
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
+
+  // مودال إعدادات التشغيل والكراسي وساعات العمل والعطلات
+  const [scheduleSettingsOpen, setScheduleSettingsOpen] = useState(false);
+  const [defaultDuration, setDefaultDuration] = useState(30);
+  const [totalChairs, setTotalChairs] = useState(1);
+  const [workingHoursForm, setWorkingHoursForm] = useState([]);
+  const [newHolidayDate, setNewHolidayDate] = useState("");
+  const [newHolidayReason, setNewHolidayReason] = useState("");
+
+  // Pagination وفلاتر عرض القائمة (List View)
+  const [page, setPage] = useState(1);
+  const limit = 10;
+  const [dateFilterMode, setDateFilterMode] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterDate, setFilterDate] = useState("");
+  const [filterDoctor, setFilterDoctor] = useState("");
+
+  const [printingInvoiceId, setPrintingInvoiceId] = useState(null);
+  const [toast, setToast] = useState(null);
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // مودال إعادة الجدولة
+  const [rescheduleData, setRescheduleData] = useState({
+    isOpen: false,
+    appointmentId: null,
+    patientName: "",
+    currentDate: "",
+    newDate: "",
+  });
+
+  // مودال الفاتورة السريعة
+  const [invoiceModal, setInvoiceModal] = useState({
+    isOpen: false,
+    appointment: null,
+    itemDescription: "كشف عيادة / استشارة",
+    itemPrice: "",
+    paidAmount: "",
+    autoPrint: false,
+  });
+
+  // مودال تأكيد الحذف
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    appointmentId: null,
+    patientName: "",
+  });
+
+
+  // 1. جلب عدد طلبات الحجز الأونلاين المعلقة (تحديث كل 30 ثانية)
   const { data: pendingRequestsData } = useQuery({
     queryKey: ["booking-requests-pending-count"],
     queryFn: async () => {
@@ -71,155 +197,81 @@ export default function Appointments() {
     refetchInterval: 30000,
   });
   const pendingRequestsCount = pendingRequestsData || 0;
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const [durationSettingsOpen, setDurationSettingsOpen] = useState(false);
-  const [defaultDuration, setDefaultDuration] = useState(30);
 
-  // Pagination المواعيد
-  const [page, setPage] = useState(1);
-  const limit = 10;
-
-  // فلاتر المواعيد
-  const [dateFilterMode, setDateFilterMode] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterDate, setFilterDate] = useState("");
-  const [filterDoctor, setFilterDoctor] = useState("");
-
-  // حالة لودينج زر الطباعة المباشرة
-  const [printingInvoiceId, setPrintingInvoiceId] = useState(null);
-
-  // نظام التوست الموحد
-  const [toast, setToast] = useState(null);
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  // حالة مودال إعادة الجدولة
-  const [rescheduleData, setRescheduleData] = useState({
-    isOpen: false,
-    appointmentId: null,
-    patientName: "",
-    currentDate: "",
-    newDate: "",
+  // 2. جلب بيانات التقويم اليومي السريع بأعمدة الأطباء (تحديث تلقائي كل 30 ثانية)
+  const {
+    data: calendarData,
+    isLoading: isLoadingCalendar,
+    isFetching: isFetchingCalendar,
+    isError: isErrorCalendar,
+    error: errorCalendar,
+    refetch: refetchCalendar,
+  } = useQuery({
+    queryKey: ["calendar-appointments", selectedCalendarDate, filterDoctor],
+    queryFn: async () => {
+      const params = {
+        from: selectedCalendarDate,
+        to: selectedCalendarDate,
+      };
+      if (filterDoctor) params.doctor_ids = filterDoctor;
+      const res = await api.get("/appointments/calendar", { params });
+      return res.data;
+    },
+    enabled: activeTab === "calendar" && viewMode === "grid",
+    refetchInterval: 30000,
   });
 
-  // حالة مودال تحويل الموعد لفاتورة سريعة مع خيار الطباعة
-  const [invoiceModal, setInvoiceModal] = useState({
-    isOpen: false,
-    appointment: null,
-    itemDescription: "كشف عيادة / استشارة",
-    itemPrice: "",
-    paidAmount: "",
-    autoPrint: false,
+  // 3. جلب تفاصيل الموعد المختار في الدرج الجانبي
+
+  const {
+    data: drawerAppointmentData,
+    isLoading: isLoadingDrawer,
+    isError: isErrorDrawer,
+    error: errorDrawer,
+    refetch: refetchDrawer,
+    isFetching: isFetchingDrawer,
+  } = useQuery({
+    queryKey: ["appointment-details", selectedAppointmentId],
+    queryFn: async () => {
+      const res = await api.get(`/appointments/${selectedAppointmentId}`);
+      return res.data?.appointment;
+    },
+    enabled: !!selectedAppointmentId,
   });
 
-  // حالة مودال تأكيد الحذف
-  const [deleteModal, setDeleteModal] = useState({
-    isOpen: false,
-    appointmentId: null,
-    patientName: "",
-  });
-
-  // حالة منيو الواتساب العائمة
-  const [activeWhatsAppMenu, setActiveWhatsAppMenu] = useState(null);
-  const [whatsAppMenuPosition, setWhatsAppMenuPosition] = useState(null);
-  const whatsAppMenuRef = useRef(null);
-
-  // دالة طباعة فاتورة موجودة بالفعل بضغطة زر
-  const handlePrintExistingInvoice = async (invoiceId) => {
-    try {
-      setPrintingInvoiceId(invoiceId);
-      const res = await api.get(`/invoices/${invoiceId}`);
-      if (res.data) {
-        printInvoice(res.data);
-      }
-    } catch (error) {
-      showToast("تعذر جلب بيانات الفاتورة للطباعة", error);
-    } finally {
-      setPrintingInvoiceId(null);
-    }
-  };
-
-  // دالة إرسال رسائل الواتساب
-  const handleSendWhatsApp = async (appointmentId, type) => {
-    setActiveWhatsAppMenu(null);
-    const newTab = window.open("about:blank", "_blank");
-    if (!newTab) {
-      showToast(
-        "يرجى السماح بالنوافذ المنبثقة لهذا الموقع ثم المحاولة مرة أخرى.",
-        "error",
-      );
-      return;
-    }
-    newTab.opener = null;
-    try {
-      const res = await api.get(
-        `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`,
-      );
-      if (res.data?.url) {
-        newTab.location.href = res.data.url;
-        showToast("تم فتح واتساب برسالة المريض بنجاح.", "success");
-      } else {
-        newTab.close();
-        showToast("لم يتم العثور على رابط واتساب صالح.", "error");
-      }
-    } catch (err) {
-      newTab.close();
-      showToast(
-        err.response?.data?.error || "فشل إنشاء رابط الواتساب.",
-        "error",
-      );
-    }
-  };
-
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (
-        whatsAppMenuRef.current &&
-        !whatsAppMenuRef.current.contains(e.target)
-      ) {
-        setActiveWhatsAppMenu(null);
-        setWhatsAppMenuPosition(null);
-      }
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, []);
-
-  // جلب المواعيد مع الـ Pagination والفلاتر من الباك إند مباشرة
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  // 4. جلب المواعيد لعرض القائمة الشاملة (List View)
+  const {
+    data: listData,
+    isLoading: isLoadingList,
+    isError: isErrorList,
+    error: errorList,
+    refetch: refetchList,
+  } = useQuery({
     queryKey: [
       "appointments",
       { page, limit, filterDate, filterDoctor, filterStatus },
     ],
     queryFn: async () => {
-      const params = {
-        page,
-        limit,
-      };
+      const params = { page, limit };
       if (filterDate) params.date = filterDate;
       if (filterDoctor) params.doctor_id = filterDoctor;
       if (filterStatus) params.status = filterStatus;
       const res = await api.get("/appointments", { params });
       return res.data;
     },
+    enabled: activeTab === "calendar" && viewMode === "list",
     placeholderData: keepPreviousData,
+    refetchInterval: 30000,
   });
 
-  const appointments = data?.appointments || [];
-  const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
-  const filteredAppointments = appointments;
+  const appointments = listData?.appointments || [];
+  const pagination = listData?.pagination || {
+    total: 0,
+    page: 1,
+    totalPages: 1,
+  };
 
-  useEffect(() => {
-    if (!isLoading && page > 1 && appointments.length === 0) {
-      setPage((p) => Math.max(1, p - 1));
-    }
-  }, [isLoading, page, appointments.length]);
-
+  // 5. جلب إعدادات العيادة (المدة، الكراسي، ساعات العمل، العطلات)
   const { data: durationSettings } = useQuery({
     queryKey: ["clinic-duration-settings"],
     queryFn: async () => {
@@ -229,7 +281,7 @@ export default function Appointments() {
     enabled: ["ClinicAdmin", "Receptionist", "Doctor"].includes(user?.role),
   });
 
-  // جلب الأطباء
+  // 6. جلب الأطباء للفلاتر
   const { data: doctors = [] } = useQuery({
     queryKey: ["doctors"],
     queryFn: async () => {
@@ -238,18 +290,89 @@ export default function Appointments() {
     },
   });
 
-  // تحديث حالة الميعاد + فتح الفاتورة تلقائياً عند الاكتمال
+  // تهيئة بيانات نافذة إعدادات التشغيل عند فتحها
+  const handleOpenScheduleSettings = () => {
+    setDefaultDuration(durationSettings?.default_appointment_duration || 30);
+    setTotalChairs(durationSettings?.total_chairs_count || 1);
+
+    const existingHours = durationSettings?.working_hours || [];
+    const fullWeek = Array.from({ length: 7 }, (_, idx) => {
+      const found = existingHours.find((h) => Number(h.weekday) === idx);
+      return {
+        weekday: idx,
+        open_time: found?.open_time ? found.open_time.slice(0, 5) : "09:00",
+        close_time: found?.close_time ? found.close_time.slice(0, 5) : "22:00",
+        is_closed: found ? Boolean(found.is_closed) : idx === 5, // الجمعة مغلق افتراضياً
+        breaks: found?.breaks || [],
+      };
+    });
+    setWorkingHoursForm(fullWeek);
+    setScheduleSettingsOpen(true);
+  };
+
+  // طباعة الفاتورة
+  const handlePrintExistingInvoice = async (invoiceId) => {
+    try {
+      setPrintingInvoiceId(invoiceId);
+      const res = await api.get(`/invoices/${invoiceId}`);
+      if (res.data) {
+        printInvoice(res.data);
+      }
+    } catch (err) {
+      showToast("تعذر جلب بيانات الفاتورة للطباعة", "error");
+    } finally {
+      setPrintingInvoiceId(null);
+    }
+  };
+
+  // إرسال واتساب
+  const handleSendWhatsApp = async (appointmentId, type) => {
+    const newTab = window.open("about:blank", "_blank");
+    if (!newTab) {
+      showToast("يرجى السماح بالنوافذ المنبثقة لهذا الموقع", "error");
+      return;
+    }
+    newTab.opener = null;
+    try {
+      const res = await api.get(
+        `/whatsapp/appointment-link?appointment_id=${appointmentId}&type=${type}`,
+      );
+      if (res.data?.url) {
+        newTab.location.href = res.data.url;
+        showToast("تم فتح واتساب برسالة المريض بنجاح", "success");
+      } else {
+        newTab.close();
+        showToast("لم يتم العثور على رابط واتساب صالح", "error");
+      }
+    } catch (err) {
+      newTab.close();
+      showToast(
+        err.response?.data?.error || "فشل إنشاء رابط الواتساب",
+        "error",
+      );
+    }
+  };
+
+
+  // تحديث حالة الموعد
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status, appointment }) => {
       const res = await api.patch(`/appointments/${id}/status`, { status });
       return { data: res.data, status, appointment };
     },
     onSuccess: ({ status, appointment }) => {
-      queryClient.invalidateQueries({ queryKey: ["appointments"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-      showToast("تم تحديث حالة الميعاد بنجاح", "success");
+      const existingInvoiceId =
+        appointment?.invoice_id || getCachedInvoiceId(appointment?.id);
 
-      if (status === "completed" && appointment && !appointment.invoice_id) {
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      queryClient.invalidateQueries({
+        queryKey: ["appointment-details", selectedAppointmentId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      showToast("تم تحديث حالة الموعد بنجاح", "success");
+
+      if (status === "completed" && appointment && !existingInvoiceId) {
         setInvoiceModal({
           isOpen: true,
           appointment: { ...appointment, status: "completed" },
@@ -275,6 +398,10 @@ export default function Appointments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      queryClient.invalidateQueries({
+        queryKey: ["appointment-details", selectedAppointmentId],
+      });
       setRescheduleData({
         isOpen: false,
         appointmentId: null,
@@ -292,7 +419,7 @@ export default function Appointments() {
     },
   });
 
-  // تحويل الموعد إلى فاتورة + طباعتها فوراً
+  // تحويل الموعد إلى فاتورة
   const convertToInvoiceMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post("/invoices", payload);
@@ -301,6 +428,10 @@ export default function Appointments() {
     onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      queryClient.invalidateQueries({
+        queryKey: ["appointment-details", selectedAppointmentId],
+      });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
 
       setInvoiceModal({
@@ -311,7 +442,6 @@ export default function Appointments() {
         paidAmount: "",
         autoPrint: false,
       });
-
       showToast("تم إصدار الفاتورة بنجاح", "success");
 
       if (invoiceModal.autoPrint) {
@@ -319,9 +449,7 @@ export default function Appointments() {
           const createdInvoiceId = data?.invoice?.id;
           if (createdInvoiceId) {
             const fullInv = await api.get(`/invoices/${createdInvoiceId}`);
-            if (fullInv.data) {
-              printInvoice(fullInv.data);
-            }
+            if (fullInv.data) printInvoice(fullInv.data);
           }
         } catch (printErr) {
           console.error("Print auto open error:", printErr);
@@ -336,26 +464,59 @@ export default function Appointments() {
     },
   });
 
-  // زرار تغيير مدة الكشف
-  const updateDurationMutation = useMutation({
-    mutationFn: async (newDuration) => {
-      const res = await api.patch("/appointments/settings/duration", {
-        default_appointment_duration: Number(newDuration),
+  // حفظ إعدادات التشغيل والكراسي وساعات العمل
+  const updateScheduleSettingsMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await api.patch("/appointments/settings/duration", payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinic-duration-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      setScheduleSettingsOpen(false);
+      showToast("تم حفظ إعدادات التشغيل والكراسي وساعات العمل", "success");
+    },
+    onError: (err) => {
+      showToast(
+        err.response?.data?.error || "حدث خطأ أثناء تحديث الإعدادات",
+        "error",
+      );
+    },
+  });
+
+  // إضافة عطلة رسمية
+  const addHolidayMutation = useMutation({
+    mutationFn: async ({ date, reason }) => {
+      const res = await api.post("/appointments/settings/holidays", {
+        date,
+        reason,
       });
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["clinic-duration-settings"],
-      });
-      setDurationSettingsOpen(false);
-      showToast("تم تحديث مدة الكشف الافتراضية بنجاح", "success");
+      queryClient.invalidateQueries({ queryKey: ["clinic-duration-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      setNewHolidayDate("");
+      setNewHolidayReason("");
+      showToast("تمت إضافة العطلة الرسمية", "success");
     },
-    onError: (error) => {
-      showToast(
-        error.response?.data?.error || "حدث خطأ أثناء تحديث مدة الكشف",
-        "error",
+    onError: (err) => {
+      showToast(err.response?.data?.error || "فشل إضافة العطلة", "error");
+    },
+  });
+
+  // حذف عطلة رسمية
+  const deleteHolidayMutation = useMutation({
+    mutationFn: async (holidayId) => {
+      const res = await api.delete(
+        `/appointments/settings/holidays/${holidayId}`,
       );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clinic-duration-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      showToast("تم حذف العطلة", "success");
     },
   });
 
@@ -367,6 +528,8 @@ export default function Appointments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
+      setSelectedAppointmentId(null);
       setDeleteModal({ isOpen: false, appointmentId: null, patientName: "" });
       showToast("تم حذف الموعد نهائياً بنجاح", "success");
     },
@@ -375,7 +538,6 @@ export default function Appointments() {
     },
   });
 
-  // عرض التاريخ والوقت بتوقيت القاهرة دائماً
   const formatDateTime = (dateString) => {
     const d = new Date(dateString);
     if (isNaN(d.getTime())) return "-";
@@ -389,83 +551,319 @@ export default function Appointments() {
     return `${date} - ${time}`;
   };
 
+  const formatCairoTimeOnly = (dateString) => {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("ar-EG", {
+      timeZone: "Africa/Cairo",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  const getCairoHHMM = (dateString) => {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return "00:00";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Cairo",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+  };
+
+  // ألوان الحالات بلمسة زجاجية
   const statusConfig = {
     scheduled: {
       label: "مجدول",
-      bg: "bg-[var(--primary-muted)] text-[var(--primary-base)] border border-[var(--primary-base)]/20",
+      bg: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
+      cardBg:
+        "bg-teal-950/55 hover:bg-teal-900/60 border-teal-500/40 text-teal-100",
+    },
+    arrived: {
+      label: "وصل بالانتظار",
+      bg: "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40",
+      cardBg:
+        "bg-cyan-950/65 hover:bg-cyan-900/70 border-cyan-400/50 text-cyan-100",
+    },
+    in_progress: {
+      label: "داخل الكشف 🩺",
+      bg: "bg-indigo-500/20 text-indigo-300 border border-indigo-400/40",
+      cardBg:
+        "bg-indigo-950/70 hover:bg-indigo-900/75 border-indigo-400/50 text-indigo-100 ring-1 ring-indigo-400/30",
     },
     completed: {
       label: "مكتمل",
-      bg: "bg-[var(--success-bg)] text-[var(--success-text)] border border-[var(--success-text)]/20",
+      bg: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+      cardBg:
+        "bg-emerald-950/50 hover:bg-emerald-900/55 border-emerald-500/35 text-emerald-100",
     },
     cancelled: {
       label: "ملغي",
-      bg: "bg-[var(--danger-bg)] text-[var(--danger-text)] border border-[var(--danger-text)]/20",
+      bg: "bg-rose-500/15 text-rose-300 border border-rose-500/30",
+      cardBg:
+        "bg-rose-950/35 hover:bg-rose-950/50 border-rose-500/25 text-rose-200/70 opacity-60",
     },
     no_show: {
       label: "لم يحضر",
-      bg: "bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20",
+      bg: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+      cardBg:
+        "bg-amber-950/40 hover:bg-amber-900/50 border-amber-500/30 text-amber-200/80 opacity-75",
     },
   };
 
+  // ==========================================
+  // حسابات شبكة التقويم اليومي (Daily Doctor Columns)
+  // ==========================================
+  const selectedDayWeekday = useMemo(() => {
+    const [y, m, d] = selectedCalendarDate.split("-").map(Number);
+    return new Date(y, m - 1, d).getDay(); // 0=الأحد .. 6=السبت
+  }, [selectedCalendarDate]);
+
+  const calendarDoctors = useMemo(() => {
+    const allDocs = calendarData?.doctors || doctors || [];
+    if (filterDoctor) {
+      return allDocs.filter((d) => d.id === filterDoctor);
+    }
+    return allDocs;
+  }, [calendarData?.doctors, doctors, filterDoctor]);
+
+  const calendarAppointments = calendarData?.appointments || [];
+  const activeInvoiceId =
+    drawerAppointmentData?.invoice_id ||
+    getCachedInvoiceId(selectedAppointmentId);
+  const doctorShifts = calendarData?.doctor_shifts || [];
+  const doctorLeaves = calendarData?.doctor_leaves || [];
+  const clinicWorkingHours = calendarData?.clinic_settings?.working_hours || [];
+  const clinicHolidays = calendarData?.clinic_settings?.holidays || [];
+  const clinicChairsCount =
+    calendarData?.clinic_settings?.total_chairs_count ||
+    durationSettings?.total_chairs_count ||
+    1;
+
+  // هل اليوم المختار عطلة رسمية للعيادة؟
+  const activeHoliday = useMemo(() => {
+    return clinicHolidays.find((h) => h.date === selectedCalendarDate) || null;
+  }, [clinicHolidays, selectedCalendarDate]);
+
+  // ساعات عمل العيادة لليوم المختار
+  const todayClinicSchedule = useMemo(() => {
+    return (
+      clinicWorkingHours.find(
+        (h) => Number(h.weekday) === selectedDayWeekday,
+      ) || null
+    );
+  }, [clinicWorkingHours, selectedDayWeekday]);
+
+  // توليد الخانات الزمنية (كل 30 دقيقة) بناءً على ساعات عمل العيادة (أو من 09:00 إلى 22:30 افتراضياً)
+  const timeSlots = useMemo(() => {
+    let startHour = 9;
+    let endHour = 22;
+
+    if (todayClinicSchedule && !todayClinicSchedule.is_closed) {
+      const [oh] = (todayClinicSchedule.open_time || "09:00")
+        .split(":")
+        .map(Number);
+      const [ch, cm] = (todayClinicSchedule.close_time || "22:00")
+        .split(":")
+        .map(Number);
+      startHour = Math.max(0, oh);
+      endHour = cm > 0 ? ch : Math.max(startHour + 1, ch - 1);
+    }
+
+    const slots = [];
+    for (let h = startHour; h <= endHour; h++) {
+      for (const m of [0, 30]) {
+        if (
+          todayClinicSchedule &&
+          !todayClinicSchedule.is_closed &&
+          `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00` >=
+            todayClinicSchedule.close_time
+        ) {
+          continue;
+        }
+        const hh = String(h).padStart(2, "0");
+        const mm = String(m).padStart(2, "0");
+        const time24 = `${hh}:${mm}`;
+        const period = h >= 12 ? "م" : "ص";
+        const hour12 = h % 12 === 0 ? 12 : h % 12;
+        slots.push({
+          time24,
+          label: `${hour12}:${mm} ${period}`,
+        });
+      }
+    }
+    return slots;
+  }, [todayClinicSchedule]);
+
+  // فحص هل الخانة الزمنية تقع داخل شيفت الطبيب أم خارجه
+  const isSlotInDoctorShift = (docId, time24) => {
+    const docAllShifts = doctorShifts.filter((s) => s.doctor_id === docId);
+    // لو الطبيب ملوش أي شيفتات مضافة في النظام، نعتبر كل الأوقات متاحة
+    if (docAllShifts.length === 0) return true;
+
+    const todayShifts = docAllShifts.filter(
+      (s) => Number(s.day_of_week) === selectedDayWeekday,
+    );
+    if (todayShifts.length === 0) return false;
+
+    const slotTimeSec = `${time24}:00`;
+    return todayShifts.some(
+      (s) => slotTimeSec >= s.start_time && slotTimeSec < s.end_time,
+    );
+  };
+
+  // فحص هل الطبيب في إجازة اليوم
+  const getDoctorLeaveToday = (docId) => {
+    return (
+      doctorLeaves.find(
+        (l) => l.doctor_id === docId && l.leave_date === selectedCalendarDate,
+      ) || null
+    );
+  };
+
+  // بناء ملخص التنبيه الطبي للدرج الجانبي
+  const drawerAlertSummary = useMemo(() => {
+    if (!drawerAppointmentData) return { level: "none", tags: [] };
+    const answers = drawerAppointmentData.medical_history_answers || {};
+    const allergies = drawerAppointmentData.patient_allergies || [];
+    const tags = [];
+
+    if (answers.blood_thinners) tags.push("مميعات دم");
+    if (answers.heart_disease) tags.push("أمراض قلب");
+    if (answers.bleeding_disorder) tags.push("سيولة دم");
+    if (answers.pregnancy) tags.push("حمل");
+    if (answers.diabetes) tags.push("سكري");
+    if (answers.hypertension) tags.push("ضغط دم");
+    if (answers.asthma) tags.push("ربو");
+    if (answers.hepatitis) tags.push("كبد");
+    if (answers.kidney_disease) tags.push("كلى");
+
+    allergies.forEach((a) => tags.push(`حساسية: ${a.substance}`));
+    if (drawerAppointmentData.patient_medical_alerts && tags.length === 0) {
+      tags.push(drawerAppointmentData.patient_medical_alerts);
+    }
+
+    return {
+      level:
+        drawerAppointmentData.medical_alert_level !== "none"
+          ? drawerAppointmentData.medical_alert_level
+          : drawerAppointmentData.has_medical_alert
+            ? "moderate"
+            : "none",
+      tags,
+    };
+  }, [drawerAppointmentData]);
+
   return (
-    <div className="space-y-6">
-      {/* 🌟 الهيدر الرئيسي */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold text-[var(--text-main)] flex items-center gap-2.5">
-            <CalendarIcon className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--primary-base)]" />
-            جدول المواعيد
-          </h1>
-          <p className="text-[var(--text-secondary)] text-xs sm:text-sm mt-1">
-            متابعة الحجوزات وتنظيم مواعيد العيادة بدقة
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          {["ClinicAdmin", "Receptionist", "Doctor"].includes(user?.role) && (
+    <div className="space-y-6 relative">
+      {/* 🌟 الهيدر الزجاجي الرئيسي */}
+      <div className="relative rounded-2xl bg-[#0d1527]/70 backdrop-blur-xl border border-teal-500/20 p-5 shadow-xl overflow-hidden">
+        <div className="absolute -top-20 -left-20 w-64 h-64 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 shadow-lg shadow-teal-500/10">
+                <CalendarIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
+                  <span>التقويم ومحرك المواعيد</span>
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-ping" />
+                    مباشر (تحديث كل 30ث)
+                  </span>
+                </h1>
+                <p className="text-slate-400 text-xs sm:text-sm mt-0.5 flex items-center gap-3">
+                  <span>
+                    إدارة الكراسي وشيفتات الأطباء ومنع التضارب تلقائياً
+                  </span>
+                  <span className="text-teal-400/90 font-semibold inline-flex items-center gap-1">
+                    <Armchair className="w-3.5 h-3.5" />
+                    سعة العيادة: {clinicChairsCount} كرسي
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* أزرار التبديل بين تقويم الأعمدة والجدول */}
+            {activeTab === "calendar" && (
+              <div className="flex items-center bg-[#070b14]/80 p-1 rounded-xl border border-white/10">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    viewMode === "grid"
+                      ? "bg-teal-500 text-slate-950 shadow-md"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>أعمدة الأطباء</span>
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    viewMode === "list"
+                      ? "bg-teal-500 text-slate-950 shadow-md"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>القائمة الشاملة</span>
+                </button>
+              </div>
+            )}
+
+            {user?.role === "ClinicAdmin" && (
+              <button
+                onClick={handleOpenScheduleSettings}
+                className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 backdrop-blur-md border border-white/10 text-slate-200 hover:text-teal-300 px-3.5 py-2.5 rounded-xl font-medium text-xs sm:text-sm transition-all"
+              >
+                <Settings2 className="w-4 h-4 text-teal-400" />
+                <span>إعدادات الكراسي والدوام</span>
+              </button>
+            )}
+
             <button
-              onClick={() => {
-                setDefaultDuration(
-                  durationSettings?.default_appointment_duration || 30,
-                );
-                setDurationSettingsOpen(true);
-              }}
-              className="flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
+              onClick={() =>
+                setBookModalState({
+                  isOpen: true,
+                  initialDoctorId: filterDoctor || "",
+                  initialDate: "",
+                })
+              }
+              className="flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-slate-950 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-lg shadow-teal-500/20 transition-all"
             >
-              <Clock className="w-4 h-4" />
-              <span>المدة الافتراضية</span>
+              <Plus className="w-4 h-4" />
+              <span>حجز موعد جديد</span>
             </button>
-          )}
-          <button
-            onClick={() => setIsBookModalOpen(true)}
-            className="flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-medium text-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>حجز موعد جديد</span>
-          </button>
+          </div>
         </div>
       </div>
 
-      {/* 🌟 شريط التبديل بين جدول المواعيد وطلبات الحجز العامة */}
-      <div className="flex border-b border-[var(--border-default)] gap-6">
+      {/* 🌟 شريط التبديل بين التقويم الحي وطلبات الحجز الأونلاين */}
+      <div className="flex border-b border-white/10 gap-6 px-2">
         <button
           onClick={() => setActiveTab("calendar")}
-          className={`flex items-center gap-2 pb-3 text-sm font-semibold transition-all relative ${
+          className={`flex items-center gap-2 pb-3 text-sm font-bold transition-all relative ${
             activeTab === "calendar"
-              ? "text-[var(--primary-base)] border-b-2 border-[var(--primary-base)]"
-              : "text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+              ? "text-teal-400 border-b-2 border-teal-400"
+              : "text-slate-400 hover:text-slate-200"
           }`}
         >
           <CalendarIcon className="w-4 h-4" />
-          <span>جدول المواعيد الحية</span>
+          <span>شاشة تشغيل المواعيد</span>
         </button>
 
         <button
           onClick={() => setActiveTab("requests")}
-          className={`flex items-center gap-2 pb-3 text-sm font-semibold transition-all relative ${
+          className={`flex items-center gap-2 pb-3 text-sm font-bold transition-all relative ${
             activeTab === "requests"
-              ? "text-[var(--primary-base)] border-b-2 border-[var(--primary-base)]"
-              : "text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+              ? "text-teal-400 border-b-2 border-teal-400"
+              : "text-slate-400 hover:text-slate-200"
           }`}
         >
           <Globe className="w-4 h-4" />
@@ -479,18 +877,511 @@ export default function Appointments() {
       </div>
 
       {activeTab === "calendar" ? (
-        <>
-          {/* 🌟 شريط الفلاتر */}
-          <div className="flex flex-wrap items-center gap-3 bg-[var(--bg-app)] p-3.5 sm:p-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[var(--primary-base)]" />
-              <span className="text-xs font-medium text-[var(--text-secondary)]">
-                فلترة المواعيد:
-              </span>
+        viewMode === "grid" ? (
+          /* =========================================================
+             🌟 أولاً: عرض التقويم اليومي بأعمدة الأطباء (Glassmorphic Grid)
+             ========================================================= */
+          <div className="space-y-4">
+            {/* شريط التحكم في اليوم وفلتر الطبيب */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#0d1527]/70 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 shadow-lg">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() =>
+                    setSelectedCalendarDate(
+                      addDaysToDateStr(selectedCalendarDate, -1),
+                    )
+                  }
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-colors"
+                  title="اليوم السابق"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-2 bg-[#070b14]/80 border border-teal-500/30 rounded-xl px-3.5 py-1.5">
+                  <CalendarIcon className="w-4 h-4 text-teal-400" />
+                  <span className="text-xs font-bold text-teal-300">
+                    {ARABIC_WEEKDAYS[selectedDayWeekday]}
+                  </span>
+                  <input
+                    type="date"
+                    value={selectedCalendarDate}
+                    onChange={(e) => {
+                      if (e.target.value)
+                        setSelectedCalendarDate(e.target.value);
+                    }}
+                    className="bg-transparent text-xs sm:text-sm font-mono font-bold text-white focus:outline-none cursor-pointer"
+                  />
+                </div>
+
+                <button
+                  onClick={() =>
+                    setSelectedCalendarDate(
+                      addDaysToDateStr(selectedCalendarDate, 1),
+                    )
+                  }
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-colors"
+                  title="اليوم التالي"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => setSelectedCalendarDate(getCairoDateString(0))}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                    selectedCalendarDate === getCairoDateString(0)
+                      ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+                      : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  اليوم
+                </button>
+
+                <button
+                  onClick={() => setSelectedCalendarDate(getCairoDateString(1))}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                    selectedCalendarDate === getCairoDateString(1)
+                      ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+                      : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  غداً
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* فلتر طبيب محدد */}
+                <select
+                  value={filterDoctor}
+                  onChange={(e) => setFilterDoctor(e.target.value)}
+                  className="bg-[#070b14]/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
+                >
+                  <option value="">👨‍⚕️ كل الأطباء ({doctors.length})</option>
+                  {doctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      د. {d.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={() => refetchCalendar()}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-teal-300 transition-colors"
+                  title="تحديث الآن"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${
+                      isFetchingCalendar ? "animate-spin text-teal-400" : ""
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* فلترة التاريخ */}
-              <div className="relative">
+
+            {/* تنبيه لو اليوم عطلة رسمية أو العيادة مغلقة */}
+            {(activeHoliday || todayClinicSchedule?.is_closed) && (
+              <div className="p-4 rounded-2xl bg-amber-500/15 backdrop-blur-xl border border-amber-500/35 text-amber-200 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <CalendarOff className="w-5 h-5 text-amber-400 shrink-0" />
+                  <div className="text-xs sm:text-sm">
+                    <span className="font-bold">
+                      {activeHoliday
+                        ? `العيادة في عطلة رسمية هذا اليوم (${
+                            activeHoliday.reason || "عطلة"
+                          })`
+                        : "العيادة مغلقة في هذا اليوم من الأسبوع حسب جدول ساعات العمل"}
+                    </span>
+                    <p className="text-xs text-amber-300/80 mt-0.5">
+                      الحجز العادي متوقف في هذا اليوم، ويمكن لمدير العيادة فقط
+                      تجاوز القفل للحالات الطارئة.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* شبكة أعمدة الأطباء الزجاجية */}
+
+            <div className="rounded-2xl bg-[#0d1527]/65 backdrop-blur-2xl border border-white/10 shadow-2xl overflow-hidden">
+              {/* فشل تحديث التقويم مع وجود بيانات سابقة: نحتفظ بالبيانات ونوضح الخطأ */}
+              {isErrorCalendar && calendarData && (
+                <div
+                  role="alert"
+                  className="m-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                    <div>
+                      <p className="text-sm font-bold text-rose-200">
+                        تعذر تحديث بيانات التقويم
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        المعروض هو آخر بيانات تم تحميلها بنجاح.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => refetchCalendar()}
+                    disabled={isFetchingCalendar}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isFetchingCalendar ? "animate-spin" : ""
+                      }`}
+                    />
+                    إعادة المحاولة
+                  </button>
+                </div>
+              )}
+
+              {isLoadingCalendar ? (
+                <div className="p-20 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Loader2 className="w-9 h-9 animate-spin text-teal-400" />
+                  <span className="text-sm font-medium">
+                    جاري تحضير شبكة المواعيد وأعمدة الأطباء...
+                  </span>
+                </div>
+              ) : isErrorCalendar && !calendarData ? (
+                <div
+                  role="alert"
+                  className="p-12 sm:p-16 flex flex-col items-center justify-center text-center gap-4"
+                >
+                  <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                    <AlertTriangle className="w-10 h-10 text-rose-400" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-base font-bold text-white">
+                      تعذر تحميل التقويم
+                    </h3>
+                    <p className="text-sm text-slate-400 max-w-md">
+                      {errorCalendar?.response?.data?.error ||
+                        errorCalendar?.response?.data?.message ||
+                        "حدث خطأ أثناء تحميل المواعيد. تحقق من اتصالك وحاول مرة أخرى."}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => refetchCalendar()}
+                    disabled={isFetchingCalendar}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-sm font-bold transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 ${
+                        isFetchingCalendar ? "animate-spin" : ""
+                      }`}
+                    />
+                    {isFetchingCalendar
+                      ? "جاري إعادة المحاولة..."
+                      : "إعادة المحاولة"}
+                  </button>
+                </div>
+              ) : calendarDoctors.length === 0 ? (
+                <div className="p-16 text-center text-slate-400 space-y-2">
+                  <Stethoscope className="w-10 h-10 mx-auto text-teal-400/60" />
+                  <p className="font-bold text-slate-200">
+                    لا يوجد أطباء نشطون مسجلون في العيادة
+                  </p>
+                  <p className="text-xs">
+                    أضف طبيباً من قسم "فريق العمل" ليظهر عموده الخاص في التقويم.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <div className="min-w-[720px]">
+                    {/* ترويسة الأعمدة (الأطباء) */}
+                    <div
+                      className="grid border-b border-white/10 bg-[#070b14]/85 sticky top-0 z-10"
+                      style={{
+                        gridTemplateColumns: `95px repeat(${calendarDoctors.length}, minmax(210px, 1fr))`,
+                      }}
+                    >
+                      <div className="p-3.5 flex items-center justify-center border-l border-white/10 text-xs font-bold text-slate-400">
+                        الوقت
+                      </div>
+
+                      {calendarDoctors.map((doc) => {
+                        const leave = getDoctorLeaveToday(doc.id);
+                        const docApptsCount = calendarAppointments.filter(
+                          (a) =>
+                            a.doctor_id === doc.id &&
+                            !["cancelled", "no_show"].includes(a.status),
+                        ).length;
+
+                        return (
+                          <div
+                            key={doc.id}
+                            className="p-3.5 border-l border-white/10 last:border-l-0 flex items-center justify-between bg-gradient-to-b from-white/[0.03] to-transparent"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-9 h-9 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-300 font-bold text-sm shrink-0">
+                                {doc.name?.charAt(0)}
+                              </div>
+                              <div className="truncate">
+                                <h3 className="text-xs sm:text-sm font-bold text-white truncate">
+                                  د. {doc.name}
+                                </h3>
+                                {leave ? (
+                                  <span className="text-[10px] text-rose-400 font-semibold block">
+                                    🏖️ في إجازة اليوم
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400 block">
+                                    {docApptsCount} مواعيد نشطة
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* صفوف الخانات الزمنية (Time Slots) */}
+                    <div className="divide-y divide-white/[0.06]">
+                      {timeSlots.map((slot) => (
+                        <div
+                          key={slot.time24}
+                          className="grid min-h-[68px] transition-colors hover:bg-white/[0.01]"
+                          style={{
+                            gridTemplateColumns: `95px repeat(${calendarDoctors.length}, minmax(210px, 1fr))`,
+                          }}
+                        >
+                          {/* عمود الساعة */}
+                          <div className="p-2 border-l border-white/10 bg-[#070b14]/40 flex items-start justify-center pt-3">
+                            <span className="text-xs font-mono font-semibold text-slate-400">
+                              {slot.label}
+                            </span>
+                          </div>
+
+                          {/* خانات الأطباء في هذه الساعة */}
+                          {calendarDoctors.map((doc) => {
+                            const docLeave = getDoctorLeaveToday(doc.id);
+                            const inShift = isSlotInDoctorShift(
+                              doc.id,
+                              slot.time24,
+                            );
+                            const isUnavailable =
+                              Boolean(activeHoliday) ||
+                              Boolean(todayClinicSchedule?.is_closed) ||
+                              Boolean(docLeave) ||
+                              !inShift;
+
+                            // المواعيد التي تبدأ في هذه الخانة الزمنية (نصف الساعة)
+
+                            const [slotH, slotM] = slot.time24
+                              .split(":")
+                              .map(Number);
+
+                            const slotStartMinutes = slotH * 60 + slotM;
+                            const slotEndMinutes = slotStartMinutes + 30;
+
+                            // المواعيد التي تبدأ داخل الخانة الحالية، بغض النظر عن حالتها
+                            const slotAppts = calendarAppointments.filter(
+                              (apt) => {
+                                if (apt.doctor_id !== doc.id) return false;
+
+                                const hhmm = getCairoHHMM(apt.appointment_date);
+                                const [ah, am] = hhmm.split(":").map(Number);
+
+                                return (
+                                  ah === slotH &&
+                                  (slotM === 0 ? am < 30 : am >= 30)
+                                );
+                              },
+                            );
+
+                            // المواعيد النشطة التي تشغل أي جزء من الخانة الحالية
+                            const blockingSlotAppts =
+                              calendarAppointments.filter((apt) => {
+                                if (apt.doctor_id !== doc.id) return false;
+
+                                const status = (apt.status || "")
+                                  .toLowerCase()
+                                  .trim();
+
+                                if (
+                                  ![
+                                    "scheduled",
+                                    "arrived",
+                                    "in_progress",
+                                  ].includes(status)
+                                ) {
+                                  return false;
+                                }
+
+                                const hhmm = getCairoHHMM(apt.appointment_date);
+                                const [ah, am] = hhmm.split(":").map(Number);
+                                const appointmentStartMinutes = ah * 60 + am;
+                                const appointmentDuration =
+                                  Number(apt.duration_minutes) || 30;
+                                const appointmentEndMinutes =
+                                  appointmentStartMinutes + appointmentDuration;
+
+                                return (
+                                  appointmentStartMinutes < slotEndMinutes &&
+                                  appointmentEndMinutes > slotStartMinutes
+                                );
+                              });
+
+                            return (
+                              <div
+                                key={`${doc.id}-${slot.time24}`}
+                                onClick={() => {
+                                  if (blockingSlotAppts.length === 0) {
+                                    setBookModalState({
+                                      isOpen: true,
+                                      initialDoctorId: doc.id,
+                                      initialDate: `${selectedCalendarDate}T${slot.time24}`,
+                                    });
+                                  }
+                                }}
+                                className={`relative p-1.5 border-l border-white/10 last:border-l-0 transition-all group ${
+                                  isUnavailable
+                                    ? "bg-[#050811]/75 cursor-pointer"
+                                    : "hover:bg-teal-500/[0.06] cursor-pointer"
+                                }`}
+                                style={
+                                  isUnavailable
+                                    ? {
+                                        backgroundImage:
+                                          "repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 8px, transparent 8px, transparent 16px)",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                {/* زر + يظهر عند التمرير على خانة فارغة */}
+                                {blockingSlotAppts.length === 0 && (
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity py-1 flex items-center justify-center">
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-300 bg-teal-500/15 border border-teal-500/30 px-2.5 py-1 rounded-lg backdrop-blur-md">
+                                      <Plus className="w-3 h-3" />
+                                      {isUnavailable
+                                        ? "خارج الدوام (حجز طارئ)"
+                                        : `حجز ${slot.label}`}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* كروت المواعيد داخل الخانة */}
+                                <div className="space-y-1.5">
+                                  {slotAppts.map((apt) => {
+                                    const st = (apt.status || "scheduled")
+                                      .toLowerCase()
+                                      .trim();
+                                    const cfg =
+                                      statusConfig[st] ||
+                                      statusConfig.scheduled;
+                                    const isCritical =
+                                      apt.medical_alert_level === "critical";
+
+                                    return (
+                                      <div
+                                        key={apt.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedAppointmentId(apt.id);
+                                        }}
+                                        className={`p-2.5 rounded-xl border backdrop-blur-xl shadow-md transition-all cursor-pointer ${cfg.cardBg}`}
+                                      >
+                                        <div className="flex items-start justify-between gap-1.5">
+                                          <span className="font-bold text-xs truncate">
+                                            {apt.patient_name}
+                                          </span>
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            {apt.has_medical_alert && (
+                                              <span
+                                                title={
+                                                  isCritical
+                                                    ? "تنبيه طبي حرج!"
+                                                    : "تنبيه طبي"
+                                                }
+                                                className={`p-0.5 rounded-full ${
+                                                  isCritical
+                                                    ? "bg-rose-500 text-white animate-pulse"
+                                                    : "bg-amber-500 text-slate-950"
+                                                }`}
+                                              >
+                                                <AlertOctagon className="w-3 h-3" />
+                                              </span>
+                                            )}
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/30 font-semibold">
+                                              {cfg.label}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-[11px] opacity-85 mt-1 font-mono">
+                                          <span>
+                                            {formatCairoTimeOnly(
+                                              apt.appointment_date,
+                                            )}{" "}
+                                            ({apt.duration_minutes}د)
+                                          </span>
+                                          {apt.invoice_id && (
+                                            <span className="text-emerald-300 font-sans font-bold">
+                                              ✓ مفوتر
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+
+                                  {blockingSlotAppts
+                                    .filter(
+                                      (apt) =>
+                                        !slotAppts.some(
+                                          (shown) => shown.id === apt.id,
+                                        ),
+                                    )
+                                    .map((apt) => (
+                                      <div
+                                        key={`continuation-${apt.id}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedAppointmentId(apt.id);
+                                        }}
+                                        className="p-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs cursor-pointer"
+                                      >
+                                        <div className="font-bold truncate">
+                                          {apt.patient_name}
+                                        </div>
+                                        <div className="text-[10px] mt-1">
+                                          مستمر من{" "}
+                                          {formatCairoTimeOnly(
+                                            apt.appointment_date,
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* =========================================================
+             🌟 ثانياً: عرض القائمة الشاملة بالـ Pagination (List View)
+             ========================================================= */
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3 bg-[#0d1527]/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-teal-400" />
+                <span className="text-xs font-semibold text-slate-300">
+                  فلترة المواعيد:
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
                 <select
                   value={dateFilterMode}
                   onChange={(e) => {
@@ -504,57 +1395,50 @@ export default function Appointments() {
                       setFilterDate(getCairoDateString(1));
                     else if (value === "custom") setFilterDate("");
                   }}
-                  className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
+                  className="bg-[#070b14]/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
                 >
                   <option value="all">📅 كل التواريخ</option>
                   <option value="today">📅 مواعيد اليوم</option>
                   <option value="tomorrow">📅 مواعيد الغد</option>
                   <option value="custom">📅 تاريخ محدد</option>
                 </select>
-                <CalendarIcon className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
-              </div>
 
-              {/* التاريخ المخصص */}
-              {dateFilterMode === "custom" && (
-                <input
-                  type="date"
-                  value={filterDate}
-                  onChange={(e) => {
-                    setFilterDate(e.target.value);
-                    setPage(1);
-                  }}
-                  className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
-                />
-              )}
+                {dateFilterMode === "custom" && (
+                  <input
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => {
+                      setFilterDate(e.target.value);
+                      setPage(1);
+                    }}
+                    className="bg-[#070b14]/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-mono"
+                  />
+                )}
 
-              {/* فلترة الحالة */}
-              <div className="relative">
                 <select
                   value={filterStatus}
                   onChange={(e) => {
                     setFilterStatus(e.target.value);
                     setPage(1);
                   }}
-                  className="appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer min-w-[145px] transition-colors"
+                  className="bg-[#070b14]/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
                 >
                   <option value="">📌 كل الحالات</option>
                   <option value="scheduled">مجدول</option>
+                  <option value="arrived">وصل بالانتظار</option>
+                  <option value="in_progress">داخل الكشف</option>
                   <option value="completed">مكتمل</option>
                   <option value="no_show">لم يحضر</option>
                   <option value="cancelled">ملغي</option>
                 </select>
-                <Filter className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
-              </div>
 
-              {/* فلترة الطبيب */}
-              <div className="relative min-w-[170px]">
                 <select
                   value={filterDoctor}
                   onChange={(e) => {
                     setFilterDoctor(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full appearance-none bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] pl-9 pr-3 py-2 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-focus)] focus:text-[var(--text-main)] cursor-pointer transition-colors"
+                  className="bg-[#070b14]/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
                 >
                   <option value="">كل الأطباء</option>
                   {doctors.map((d) => (
@@ -563,532 +1447,802 @@ export default function Appointments() {
                     </option>
                   ))}
                 </select>
-                <User className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-2.5 pointer-events-none" />
               </div>
             </div>
-          </div>
 
-          {/* 🌟 جدول المواعيد */}
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden">
-            {isLoading ? (
-              <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
-                <span className="text-sm">جاري تحميل جدول المواعيد...</span>
-              </div>
-            ) : isError ? (
-              <div className="p-12 flex flex-col items-center justify-center text-center gap-3">
-                <AlertTriangle className="w-10 h-10 text-[var(--danger-text)]" />
-                <p className="text-[var(--text-main)] font-semibold">
-                  حدث خطأ أثناء تحميل جدول المواعيد
-                </p>
-                <p className="text-xs text-[var(--text-muted)]">
-                  {error?.response?.data?.error ||
-                    "تعذر الاتصال بالسيرفر، تأكد من اتصالك وجرب مجدداً"}
-                </p>
-                <button
-                  onClick={() => refetch()}
-                  className="mt-2 flex items-center gap-2 px-4 py-2 bg-[var(--bg-elevated)] hover:bg-[var(--border-default)] text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs font-medium border border-[var(--border-default)] transition-colors"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  إعادة المحاولة
-                </button>
-              </div>
-            ) : appointments.length === 0 ? (
-              <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
-                {filterDate || filterDoctor || filterStatus ? (
-                  <>
-                    <Filter className="w-8 h-8 text-[var(--text-muted)] mb-1" />
-                    <p className="text-[var(--text-main)] font-semibold">
-                      لا توجد مواعيد بهذه الفلاتر
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)] mb-2">
-                      لم يتم العثور على أي حجز مطابق لخيارات التاريخ أو الطبيب
-                      المحددة.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setFilterDate("");
-                        setFilterDoctor("");
-                        setFilterStatus("");
-                        setDateFilterMode("all");
-                        setPage(1);
-                      }}
-                      className="text-xs text-[var(--primary-base)] hover:underline"
-                    >
-                      إعادة ضبط الفلاتر وعرض الكل
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <CalendarIcon className="w-8 h-8 text-[var(--text-muted)] mb-1" />
-                    <p className="text-[var(--text-main)] font-semibold">
-                      لا توجد مواعيد محجوزة حتى الآن
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)] mb-3">
-                      جدول العيادة فارغ حالياً، يمكنك بدء حجز ميعاد جديد الآن.
-                    </p>
-                    <button
-                      onClick={() => setIsBookModalOpen(true)}
-                      className="flex items-center gap-1.5 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      حجز ميعاد جديد
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-sm table-fixed">
-                  <thead className="bg-[var(--bg-app)] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
-                    <tr>
-                      <th className="py-3.5 px-5 font-medium text-xs w-[24%]">
-                        المريض
-                      </th>
-                      <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
-                        الطبيب المعالج
-                      </th>
-                      <th className="py-3.5 px-5 font-medium text-xs w-[22%]">
-                        تاريخ ووقت الميعاد
-                      </th>
-                      <th className="py-3.5 px-5 font-medium text-xs w-[18%]">
-                        حالة الموعد والفاتورة
-                      </th>
-                      <th className="py-3.5 px-5 font-medium text-xs text-center w-[18%]">
-                        الإجراءات
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
-                    {filteredAppointments.map((apt) => {
-                      const status = (apt.status || "").toLowerCase().trim();
-                      const hasInvoice = !!apt.invoice_id;
-
-                      return (
-                        <tr
-                          key={apt.id}
-                          className="hover:bg-[var(--bg-elevated)]/60 transition-colors"
-                        >
-                          {/* المريض */}
-                          <td className="py-3.5 px-5">
-                            <p
-                              className="font-semibold text-[var(--text-main)] truncate"
-                              title={apt.patient_name}
-                            >
-                              {apt.patient_name}
-                            </p>
-                            <span
-                              className="text-xs text-[var(--text-muted)] font-mono"
-                              dir="ltr"
-                            >
-                              {apt.patient_phone}
-                            </span>
-                          </td>
-
-                          {/* الطبيب */}
-                          <td className="py-3.5 px-5">
-                            <div className="flex items-center gap-2">
-                              <User className="w-4 h-4 text-[var(--primary-base)]" />
-                              <span className="text-[var(--text-secondary)]">
-                                د. {apt.doctor_name}
+            <div className="bg-[#0d1527]/70 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+              {isLoadingList ? (
+                <div className="p-16 flex flex-col items-center justify-center text-slate-400 gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+                  <span className="text-sm">جاري تحميل قائمة المواعيد...</span>
+                </div>
+              ) : isErrorList ? (
+                <div className="p-12 text-center space-y-3">
+                  <AlertTriangle className="w-10 h-10 text-rose-400 mx-auto" />
+                  <p className="text-white font-semibold">
+                    {errorList?.response?.data?.error ||
+                      "حدث خطأ أثناء تحميل المواعيد"}
+                  </p>
+                  <button
+                    onClick={() => refetchList()}
+                    className="px-4 py-2 bg-white/10 rounded-xl text-xs text-white"
+                  >
+                    إعادة المحاولة
+                  </button>
+                </div>
+              ) : appointments.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 space-y-2">
+                  <CalendarIcon className="w-8 h-8 mx-auto opacity-50" />
+                  <p className="font-semibold text-white">
+                    لا توجد مواعيد مطابقة
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-sm">
+                    <thead className="bg-[#070b14]/90 text-slate-400 border-b border-white/10 text-xs">
+                      <tr>
+                        <th className="py-3.5 px-5">المريض</th>
+                        <th className="py-3.5 px-5">الطبيب</th>
+                        <th className="py-3.5 px-5">التاريخ والوقت</th>
+                        <th className="py-3.5 px-5">الحالة والفاتورة</th>
+                        <th className="py-3.5 px-5 text-center">إجراءات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-300">
+                      {appointments.map((apt) => {
+                        const status = (apt.status || "scheduled")
+                          .toLowerCase()
+                          .trim();
+                        return (
+                          <tr
+                            key={apt.id}
+                            onClick={() => setSelectedAppointmentId(apt.id)}
+                            className="hover:bg-white/[0.04] cursor-pointer transition-colors"
+                          >
+                            <td className="py-3.5 px-5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white">
+                                  {apt.patient_name}
+                                </span>
+                                {apt.has_medical_alert && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                      apt.medical_alert_level === "critical"
+                                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    }`}
+                                  >
+                                    ⚠️ تنبيه طبي
+                                  </span>
+                                )}
+                              </div>
+                              <span
+                                className="text-xs text-slate-400 font-mono"
+                                dir="ltr"
+                              >
+                                {apt.patient_phone}
                               </span>
-                            </div>
-                          </td>
-
-                          {/* التاريخ والوقت والمدة */}
-                          <td className="py-3.5 px-5">
-                            <div className="flex items-center gap-2 text-[var(--text-secondary)] font-mono text-xs">
-                              <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                              <span dir="ltr">
+                            </td>
+                            <td className="py-3.5 px-5">
+                              د. {apt.doctor_name}
+                            </td>
+                            <td className="py-3.5 px-5 font-mono text-xs">
+                              <div dir="ltr">
                                 {formatDateTime(apt.appointment_date)}
-                              </span>
-                            </div>
-                            {apt.duration_minutes && (
-                              <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-sans">
                                 المدة: {apt.duration_minutes} دقيقة
                               </span>
-                            )}
-                          </td>
-
-                          {/* حالة الموعد والفوترة */}
-                          <td className="py-3.5 px-5">
-                            <div className="flex flex-col items-start gap-1">
+                            </td>
+                            <td className="py-3.5 px-5">
                               <span
-                                className={`inline-block px-2.5 py-0.5 rounded-[var(--radius-pill)] text-xs font-medium ${
-                                  statusConfig[status]?.bg ||
-                                  "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]"
+                                className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                  statusConfig[status]?.bg || ""
                                 }`}
                               >
                                 {statusConfig[status]?.label || apt.status}
                               </span>
+                            </td>
+                            <td
+                              className="py-3.5 px-5 text-center"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                onClick={() => setSelectedAppointmentId(apt.id)}
+                                className="px-3 py-1.5 rounded-lg bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-semibold transition-colors"
+                              >
+                                فتح الدرج
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-                              {hasInvoice ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-text)]">
-                                  <Check className="w-3 h-3" />
-                                  <span>
-                                    (
-                                    {parseFloat(
-                                      apt.invoice_total || 0,
-                                    ).toLocaleString("en-US")}{" "}
-                                    ج.م)
-                                  </span>
-                                </span>
-                              ) : status === "completed" ? (
-                                <span className="text-xs text-amber-400">
-                                  ⏳ بدون فاتورة
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
+              {!isLoadingList && pagination.total > 0 && (
+                <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 bg-[#070b14]/60 text-xs text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-white disabled:opacity-40"
+                    >
+                      السابق
+                    </button>
+                    <span>
+                      صفحة <b className="text-teal-400">{page}</b> من{" "}
+                      <b>{pagination.totalPages}</b>
+                    </span>
+                    <button
+                      onClick={() =>
+                        setPage((p) => Math.min(pagination.totalPages, p + 1))
+                      }
+                      disabled={page >= pagination.totalPages}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-white disabled:opacity-40"
+                    >
+                      التالي
+                    </button>
+                  </div>
+                  <div>إجمالي {pagination.total} موعد</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      ) : (
+        <BookingRequestsView showToast={showToast} />
+      )}
 
-                          {/* الإجراءات */}
-                          <td className="py-3.5 px-5">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {status === "scheduled" && (
-                                <>
-                                  <button
-                                    title="اكتمل الكشف"
-                                    onClick={() =>
-                                      updateStatusMutation.mutate({
-                                        id: apt.id,
-                                        status: "completed",
-                                        appointment: apt,
-                                      })
-                                    }
-                                    className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    title="لم يحضر"
-                                    onClick={() =>
-                                      updateStatusMutation.mutate({
-                                        id: apt.id,
-                                        status: "no_show",
-                                        appointment: apt,
-                                      })
-                                    }
-                                    className="p-1.5 hover:bg-[var(--warning-bg)] text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                                  >
-                                    <AlertCircle className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    title="إلغاء الميعاد"
-                                    onClick={() =>
-                                      updateStatusMutation.mutate({
-                                        id: apt.id,
-                                        status: "cancelled",
-                                        appointment: apt,
-                                      })
-                                    }
-                                    className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
-                                  >
-                                    <XCircle className="w-4 h-4" />
-                                  </button>
-                                </>
-                              )}
+      {/* =========================================================
+          🌟 الدرج الجانبي الزجاجي للموعد (Slide-over Appointment Drawer)
+          ========================================================= */}
+      {selectedAppointmentId && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-[#04070e]/65 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelectedAppointmentId(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+            className="relative w-full max-w-md h-full bg-[#0d1527]/90 backdrop-blur-2xl border-r border-teal-500/25 shadow-2xl flex flex-col justify-between overflow-y-auto p-6 text-right"
+          >
+            {/* إضاءة زجاجية في خلفية الدرج */}
+            <div className="absolute top-10 left-10 w-48 h-48 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
-                              {/* إعادة الجدولة */}
-                              {status !== "completed" && (
-                                <button
-                                  title="إعادة جدولة الموعد"
-                                  onClick={() =>
-                                    setRescheduleData({
-                                      isOpen: true,
-                                      appointmentId: apt.id,
-                                      patientName: apt.patient_name,
-                                      currentDate: apt.appointment_date,
-                                      newDate: formatToDateTimeLocal(
-                                        apt.appointment_date,
-                                      ),
-                                    })
-                                  }
-                                  className="p-1.5 hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                >
-                                  <RefreshCw className="w-4 h-4" />
-                                </button>
-                              )}
+            {isLoadingDrawer ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+                <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+                <span className="text-xs">
+                  جاري جلب تفاصيل الموعد والملف الطبي...
+                </span>
+              </div>
+            ) : isErrorDrawer || !drawerAppointmentData ? (
+              <div
+                role="alert"
+                className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-4"
+              >
+                <AlertTriangle className="w-10 h-10 text-rose-400" />
 
-                              {/* زرار الفاتورة / الطباعة */}
-                              {hasInvoice ? (
-                                <button
-                                  title="طباعة الفاتورة 🖨️"
-                                  disabled={
-                                    printingInvoiceId === apt.invoice_id
-                                  }
-                                  onClick={() =>
-                                    handlePrintExistingInvoice(apt.invoice_id)
-                                  }
-                                  className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                >
-                                  {printingInvoiceId === apt.invoice_id ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                  ) : (
-                                    <Printer className="w-4 h-4" />
-                                  )}
-                                </button>
-                              ) : (
-                                <button
-                                  title="إصدار وطباعة فاتورة"
-                                  onClick={() =>
-                                    setInvoiceModal({
-                                      isOpen: true,
-                                      appointment: apt,
-                                      itemDescription: "كشف عيادة / استشارة",
-                                      itemPrice: "",
-                                      paidAmount: "",
-                                      autoPrint: false,
-                                    })
-                                  }
-                                  className="p-1.5 hover:bg-[var(--primary-muted)] text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                >
-                                  <Receipt className="w-4 h-4" />
-                                </button>
-                              )}
+                <div className="space-y-2">
+                  <h3 className="text-base font-bold text-white">
+                    تعذر تحميل تفاصيل الموعد
+                  </h3>
 
-                              {/* زرار وقائمة الواتساب */}
-                              <div>
-                                <button
-                                  title="مراسلة المريض عبر واتساب"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (activeWhatsAppMenu === apt.id) {
-                                      setActiveWhatsAppMenu(null);
-                                      setWhatsAppMenuPosition(null);
-                                      return;
-                                    }
-                                    const rect =
-                                      e.currentTarget.getBoundingClientRect();
-                                    const gap = 4;
-                                    setWhatsAppMenuPosition({
-                                      top: rect.bottom + gap,
-                                      left: rect.left,
-                                    });
-                                    setActiveWhatsAppMenu(apt.id);
-                                  }}
-                                  className="p-1.5 hover:bg-[var(--success-bg)] text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors flex items-center justify-center"
-                                >
-                                  <MessageCircle className="w-4 h-4" />
-                                </button>
+                  <p className="text-sm text-slate-400">
+                    {errorDrawer?.response?.data?.error ||
+                      errorDrawer?.response?.data?.message ||
+                      "حدث خطأ أثناء جلب بيانات الموعد، أو لم يتم العثور عليه."}
+                  </p>
+                </div>
 
-                                {activeWhatsAppMenu === apt.id &&
-                                  createPortal(
-                                    <div
-                                      ref={whatsAppMenuRef}
-                                      dir="rtl"
-                                      style={{
-                                        position: "fixed",
-                                        top: `${
-                                          whatsAppMenuPosition?.top ?? 0
-                                        }px`,
-                                        left: `${
-                                          whatsAppMenuPosition?.left ?? 0
-                                        }px`,
-                                        zIndex: 99999,
-                                      }}
-                                      className="w-52 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] shadow-elevation p-1 space-y-1 text-right"
-                                    >
-                                      {status === "completed" ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "feedback",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>⭐</span>
-                                            <span>
-                                              تقييم الزيارة ورأي المريض
-                                            </span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "follow_up",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>🩺</span>
-                                            <span>
-                                              اطمئنان ومتابعة بعد الكشف
-                                            </span>
-                                          </button>
-                                        </>
-                                      ) : status === "no_show" ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "no_show",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--warning-text)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>🌸</span>
-                                            <span>متابعة عدم الحضور</span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "reminder",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>🔔</span>
-                                            <span>اقتراح موعد جديد</span>
-                                          </button>
-                                        </>
-                                      ) : status === "scheduled" ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "confirmation",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--success-text)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>🦷</span>
-                                            <span>تأكيد الحجز</span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSendWhatsApp(
-                                                apt.id,
-                                                "reminder",
-                                              )
-                                            }
-                                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] hover:bg-[var(--bg-surface)] hover:text-[var(--primary-base)] rounded-[var(--radius-btn)] transition-colors"
-                                          >
-                                            <span>🔔</span>
-                                            <span>تذكير بالموعد</span>
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <div className="px-2.5 py-2 text-xs text-center text-[var(--text-muted)]">
-                                          الموعد ملغي
-                                        </div>
-                                      )}
-                                    </div>,
-                                    document.body,
-                                  )}
-                              </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => refetchDrawer()}
+                    disabled={isFetchingDrawer}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 ${
+                        isFetchingDrawer ? "animate-spin" : ""
+                      }`}
+                    />
+                    {isFetchingDrawer ? "جاري المحاولة..." : "إعادة المحاولة"}
+                  </button>
 
-                              {/* حذف الموعد */}
-                              {user?.role === "ClinicAdmin" && (
-                                <button
-                                  title="حذف الموعد نهائياً"
-                                  onClick={() =>
-                                    setDeleteModal({
-                                      isOpen: true,
-                                      appointmentId: apt.id,
-                                      patientName: apt.patient_name,
-                                    })
-                                  }
-                                  className="p-1.5 hover:bg-[var(--danger-bg)] text-[var(--danger-text)] rounded-[var(--radius-btn)] transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAppointmentId(null)}
+                    className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs font-semibold"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-5 relative">
+                {/* الهيدر */}
+                <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                  <div>
+                    <span
+                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                        statusConfig[drawerAppointmentData.status]?.bg || ""
+                      }`}
+                    >
+                      {statusConfig[drawerAppointmentData.status]?.label ||
+                        drawerAppointmentData.status}
+                    </span>
+                    <h3 className="text-lg font-bold text-white mt-1.5">
+                      تفاصيل الموعد السريري
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setSelectedAppointmentId(null)}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* شريط التنبيه الطبي الحاسم MedicalAlertBanner */}
+                <MedicalAlertBanner alertSummary={drawerAlertSummary} />
+
+                {/* كارت ملخص المريض */}
+                <div className="p-4 rounded-2xl bg-[#070b14]/70 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-300 font-bold text-base">
+                        {drawerAppointmentData.patient_name?.charAt(0)}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-base">
+                          {drawerAppointmentData.patient_name}
+                        </h4>
+                        <p
+                          className="text-xs text-slate-400 font-mono"
+                          dir="ltr"
+                        >
+                          {drawerAppointmentData.patient_phone}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() =>
+                        navigate(
+                          `/patients/${drawerAppointmentData.patient_id}`,
+                        )
+                      }
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-bold transition-colors"
+                    >
+                      <span>ملف المريض</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {drawerAppointmentData.patient_guardian_name && (
+                    <div className="text-xs text-teal-300 bg-teal-500/10 px-3 py-1.5 rounded-lg border border-teal-500/20">
+                      ولي الأمر: {drawerAppointmentData.patient_guardian_name} (
+                      {drawerAppointmentData.patient_guardian_phone})
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-xs">
+                    <div>
+                      <span className="text-slate-400 block">
+                        الطبيب المعالج
+                      </span>
+                      <span className="font-bold text-slate-100">
+                        د. {drawerAppointmentData.doctor_name}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">
+                        التوقيت والمدة
+                      </span>
+                      <span className="font-mono font-bold text-teal-300">
+                        {formatCairoTimeOnly(
+                          drawerAppointmentData.appointment_date,
+                        )}{" "}
+                        ({drawerAppointmentData.duration_minutes} د)
+                      </span>
+                    </div>
+                  </div>
+
+                  {drawerAppointmentData.notes && (
+                    <div className="pt-2 border-t border-white/10 text-xs">
+                      <span className="text-slate-400 block mb-0.5">
+                        ملاحظات الحجز:
+                      </span>
+                      <p className="text-slate-200 bg-white/5 p-2 rounded-lg">
+                        {drawerAppointmentData.notes}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* أزرار تغيير الحالة السريعة للاستقبال والطبيب */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-400 block">
+                    تحديث حالة المريض في العيادة:
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      disabled={
+                        drawerAppointmentData.status === "arrived" ||
+                        drawerAppointmentData.status === "completed" ||
+                        updateStatusMutation.isPending
+                      }
+                      onClick={() =>
+                        updateStatusMutation.mutate({
+                          id: drawerAppointmentData.id,
+                          status: "arrived",
+                          appointment: drawerAppointmentData,
+                        })
+                      }
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all disabled:opacity-40"
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      <span>وصل بالانتظار</span>
+                    </button>
+
+                    <button
+                      disabled={
+                        drawerAppointmentData.status === "in_progress" ||
+                        drawerAppointmentData.status === "completed" ||
+                        updateStatusMutation.isPending
+                      }
+                      onClick={() =>
+                        updateStatusMutation.mutate({
+                          id: drawerAppointmentData.id,
+                          status: "in_progress",
+                          appointment: drawerAppointmentData,
+                        })
+                      }
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 text-xs font-bold transition-all disabled:opacity-40"
+                    >
+                      <Play className="w-4 h-4" />
+                      <span>ابدأ الكشف الآن</span>
+                    </button>
+
+                    <button
+                      disabled={
+                        drawerAppointmentData.status === "completed" ||
+                        updateStatusMutation.isPending
+                      }
+                      onClick={() =>
+                        updateStatusMutation.mutate({
+                          id: drawerAppointmentData.id,
+                          status: "completed",
+                          appointment: drawerAppointmentData,
+                        })
+                      }
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all disabled:opacity-40"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>اكتمل الكشف</span>
+                    </button>
+
+                    <button
+                      disabled={
+                        drawerAppointmentData.status === "completed" ||
+                        updateStatusMutation.isPending
+                      }
+                      onClick={() =>
+                        updateStatusMutation.mutate({
+                          id: drawerAppointmentData.id,
+                          status: "no_show",
+                          appointment: drawerAppointmentData,
+                        })
+                      }
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all disabled:opacity-40"
+                    >
+                      <AlertCircle className="w-4 h-4" />
+                      <span>لم يحضر</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* إجراءات الواتساب والجدولة والفاتورة */}
+                <div className="space-y-2 pt-3 border-t border-white/10">
+                  <span className="text-xs font-bold text-slate-400 block">
+                    إجراءات التواصل والمالية:
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() =>
+                        handleSendWhatsApp(
+                          drawerAppointmentData.id,
+                          drawerAppointmentData.status === "completed"
+                            ? "follow_up"
+                            : "reminder",
+                        )
+                      }
+                      className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/25 text-xs font-semibold transition-all"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>رسالة واتساب</span>
+                    </button>
+
+                    {activeInvoiceId ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handlePrintExistingInvoice(activeInvoiceId)
+                        }
+                        disabled={printingInvoiceId === activeInvoiceId}
+                        className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/25 text-xs font-semibold transition-all disabled:opacity-50"
+                      >
+                        {printingInvoiceId === activeInvoiceId ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Printer className="w-4 h-4" />
+                        )}
+
+                        <span>
+                          {printingInvoiceId === activeInvoiceId
+                            ? "جاري تجهيز الفاتورة..."
+                            : "طباعة الفاتورة"}
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setInvoiceModal({
+                            isOpen: true,
+                            appointment: drawerAppointmentData,
+                            itemDescription: "كشف عيادة / استشارة",
+                            itemPrice: "",
+                            paidAmount: "",
+                            autoPrint: false,
+                          })
+                        }
+                        className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-semibold transition-all"
+                      >
+                        <Receipt className="w-4 h-4" />
+                        <span>إصدار فاتورة</span>
+                      </button>
+                    )}
+
+                    {drawerAppointmentData.status !== "completed" && (
+                      <button
+                        onClick={() =>
+                          setRescheduleData({
+                            isOpen: true,
+                            appointmentId: drawerAppointmentData.id,
+                            patientName: drawerAppointmentData.patient_name,
+                            currentDate: drawerAppointmentData.appointment_date,
+                            newDate: formatToDateTimeLocal(
+                              drawerAppointmentData.appointment_date,
+                            ),
+                          })
+                        }
+                        className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-semibold transition-all"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>إعادة جدولة</span>
+                      </button>
+                    )}
+
+                    {drawerAppointmentData.status !== "completed" &&
+                      drawerAppointmentData.status !== "cancelled" && (
+                        <button
+                          onClick={() =>
+                            updateStatusMutation.mutate({
+                              id: drawerAppointmentData.id,
+                              status: "cancelled",
+                              appointment: drawerAppointmentData,
+                            })
+                          }
+                          className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/25 text-xs font-semibold transition-all"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          <span>إلغاء الموعد</span>
+                        </button>
+                      )}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* 🌟 شريط الـ Pagination */}
-            {!isLoading && pagination.total > 0 && (
-              <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-default)] bg-[#070b14]/50 text-sm text-[var(--text-secondary)]">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
-                  >
-                    السابق
-                  </button>
-                  <span className="text-xs text-[var(--text-secondary)] px-2">
-                    صفحة <span className="font-bold text-teal-400">{page}</span>{" "}
-                    من{" "}
-                    <span className="font-bold text-[var(--text-main)]">
-                      {pagination.totalPages}
-                    </span>
-                  </span>
-                  <button
-                    onClick={() =>
-                      setPage((p) => Math.min(pagination.totalPages, p + 1))
-                    }
-                    disabled={page >= pagination.totalPages}
-                    className="px-3.5 py-1.5 rounded-[var(--radius-btn)] border border-[var(--border-default)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-semibold"
-                  >
-                    التالي
-                  </button>
-                </div>
+            {/* فوتر الدرج */}
+            {drawerAppointmentData && user?.role === "ClinicAdmin" && (
+              <div className="pt-4 border-t border-white/10 flex justify-between items-center">
+                <button
+                  onClick={() =>
+                    setDeleteModal({
+                      isOpen: true,
+                      appointmentId: drawerAppointmentData.id,
+                      patientName: drawerAppointmentData.patient_name,
+                    })
+                  }
+                  className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>حذف الموعد نهائياً</span>
+                </button>
 
-                <div className="text-xs">
-                  عرض{" "}
-                  <span className="font-bold text-[var(--text-main)]">
-                    {appointments.length}
-                  </span>{" "}
-                  من أصل{" "}
-                  <span className="font-bold text-[var(--text-main)]">
-                    {pagination.total}
-                  </span>{" "}
-                  موعد
-                </div>
+                <button
+                  onClick={() => setSelectedAppointmentId(null)}
+                  className="px-4 py-1.5 rounded-xl bg-white/10 text-xs text-white"
+                >
+                  إغلاق
+                </button>
               </div>
             )}
           </div>
-        </>
-      ) : (
-        <BookingRequestsView showToast={showToast} />
+        </div>
+      )}
+
+      {/* =========================================================
+          🌟 نافذة إعدادات التشغيل والكراسي وساعات عمل العيادة والعطلات
+          ========================================================= */}
+      {scheduleSettingsOpen && (
+        <div className="fixed inset-0 bg-[#04070e]/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div
+            dir="rtl"
+            className="bg-[#0d1527]/90 backdrop-blur-2xl border border-teal-500/25 max-w-2xl w-full rounded-2xl p-6 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto text-right"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <Settings2 className="w-5 h-5 text-teal-400" />
+                <h3 className="text-base sm:text-lg font-bold text-white">
+                  إعدادات الكراسي وساعات العمل والعطلات
+                </h3>
+              </div>
+              <button
+                onClick={() => setScheduleSettingsOpen(false)}
+                className="p-1.5 rounded-xl bg-white/5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 1. عدد الكراسي والمدة الافتراضية */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#070b14]/60 p-4 rounded-xl border border-white/10">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  عدد كراسي العيادة (Total Chairs) 🪑
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={totalChairs}
+                  onChange={(e) => setTotalChairs(e.target.value)}
+                  className="w-full bg-[#0d1527] border border-white/10 rounded-xl px-3.5 py-2 text-white font-mono text-sm focus:border-teal-400 focus:outline-none"
+                />
+                <span className="text-[11px] text-slate-400 block mt-1">
+                  يمنع حجز مواعيد متزامنة تتجاوز عدد الكراسي الفعلية
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  مدة الكشف الافتراضية (دقيقة) ⏱️
+                </label>
+                <input
+                  type="number"
+                  min="5"
+                  max="480"
+                  value={defaultDuration}
+                  onChange={(e) => setDefaultDuration(e.target.value)}
+                  className="w-full bg-[#0d1527] border border-white/10 rounded-xl px-3.5 py-2 text-white font-mono text-sm focus:border-teal-400 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* 2. ساعات عمل العيادة الأسبوعية */}
+            <div className="space-y-2.5">
+              <h4 className="text-xs sm:text-sm font-bold text-teal-300">
+                ساعات عمل العيادة الأسبوعية:
+              </h4>
+              <div className="space-y-2 bg-[#070b14]/60 p-3.5 rounded-xl border border-white/10">
+                {workingHoursForm.map((day, idx) => (
+                  <div
+                    key={day.weekday}
+                    className="flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-white/5 last:border-b-0 text-xs"
+                  >
+                    <label className="flex items-center gap-2 min-w-[110px] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!day.is_closed}
+                        onChange={(e) => {
+                          const isClosed = !e.target.checked;
+
+                          setWorkingHoursForm((prev) =>
+                            prev.map((day, i) =>
+                              i === idx ? { ...day, is_closed: isClosed } : day,
+                            ),
+                          );
+                        }}
+                        className="rounded accent-teal-500 w-4 h-4"
+                      />
+                      <span className="font-bold text-slate-200">
+                        {ARABIC_WEEKDAYS[day.weekday]}
+                      </span>
+                    </label>
+
+                    {day.is_closed ? (
+                      <span className="text-rose-400 font-semibold px-3 py-1 bg-rose-500/10 rounded-lg">
+                        مغلق (إجازة أسبوعية)
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="text-slate-400 font-sans">من</span>
+                        <input
+                          type="time"
+                          value={day.open_time}
+                          onChange={(e) => {
+                            const openTime = e.target.value;
+
+                            setWorkingHoursForm((prev) =>
+                              prev.map((day, i) =>
+                                i === idx
+                                  ? { ...day, open_time: openTime }
+                                  : day,
+                              ),
+                            );
+                          }}
+                          className="bg-[#0d1527] border border-white/10 rounded-lg px-2 py-1 text-white"
+                        />
+                        <span className="text-slate-400 font-sans">إلى</span>
+                        <input
+                          type="time"
+                          value={day.close_time}
+                          onChange={(e) => {
+                            const closeTime = e.target.value;
+
+                            setWorkingHoursForm((prev) =>
+                              prev.map((day, i) =>
+                                i === idx
+                                  ? { ...day, close_time: closeTime }
+                                  : day,
+                              ),
+                            );
+                          }}
+                          className="bg-[#0d1527] border border-white/10 rounded-lg px-2 py-1 text-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. العطلات الرسمية */}
+            <div className="space-y-2.5">
+              <h4 className="text-xs sm:text-sm font-bold text-amber-300">
+                العطلات الرسمية للعيادة:
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="date"
+                  value={newHolidayDate}
+                  onChange={(e) => setNewHolidayDate(e.target.value)}
+                  className="bg-[#070b14] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                />
+                <input
+                  type="text"
+                  value={newHolidayReason}
+                  onChange={(e) => setNewHolidayReason(e.target.value)}
+                  placeholder="سبب العطلة (مثل: إجازة عيد الفطر)"
+                  className="flex-1 bg-[#070b14] border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newHolidayDate) return;
+                    addHolidayMutation.mutate({
+                      date: newHolidayDate,
+                      reason: newHolidayReason,
+                    });
+                  }}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl"
+                >
+                  إضافة عطلة
+                </button>
+              </div>
+
+              {durationSettings?.holidays?.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {durationSettings.holidays.map((h) => (
+                    <span
+                      key={h.id}
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs"
+                    >
+                      <span className="font-mono">{h.date}</span>
+                      {h.reason && <span>({h.reason})</span>}
+                      <button
+                        type="button"
+                        onClick={() => deleteHolidayMutation.mutate(h.id)}
+                        className="text-rose-400 hover:text-rose-300"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setScheduleSettingsOpen(false)}
+                className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-semibold"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={updateScheduleSettingsMutation.isPending}
+                onClick={() => {
+                  const hasInvalidHours = workingHoursForm.some(
+                    (day) =>
+                      !day.is_closed &&
+                      (!day.open_time ||
+                        !day.close_time ||
+                        day.open_time >= day.close_time),
+                  );
+
+                  if (hasInvalidHours) {
+                    showToast(
+                      "وقت بداية العمل يجب أن يكون قبل وقت الإغلاق في جميع الأيام المفتوحة",
+                      "error",
+                    );
+                    return;
+                  }
+
+                  updateScheduleSettingsMutation.mutate({
+                    default_appointment_duration: Number(defaultDuration),
+                    total_chairs_count: Number(totalChairs),
+                    working_hours: workingHoursForm,
+                  });
+                }}
+                className="flex-1 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs shadow-lg shadow-teal-500/20"
+              >
+                {updateScheduleSettingsMutation.isPending
+                  ? "جاري الحفظ..."
+                  : "حفظ جميع الإعدادات"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 🌟 نافذة إعادة الجدولة */}
       {rescheduleData.isOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
-              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
-                <Clock className="w-5 h-5 text-[var(--primary-base)]" />
+          <div
+            dir="rtl"
+            className="bg-[#0d1527]/90 backdrop-blur-2xl border border-teal-500/25 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4 text-right"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-teal-400" />
                 إعادة جدولة الموعد
               </h3>
               <button
                 onClick={() =>
                   setRescheduleData({ ...rescheduleData, isOpen: false })
                 }
-                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
+                className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-[var(--text-secondary)]">
-              تعديل موعد المريض:{" "}
-              <span className="font-semibold text-[var(--text-main)]">
-                {rescheduleData.patientName}
-              </span>
+            <p className="text-xs text-slate-300">
+              المريض: <b className="text-white">{rescheduleData.patientName}</b>
             </p>
             <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
                 التاريخ والوقت الجديد *
               </label>
               <input
@@ -1102,16 +2256,16 @@ export default function Appointments() {
                     newDate: e.target.value,
                   })
                 }
-                className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                className="w-full bg-[#070b14] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono text-sm focus:border-teal-400 focus:outline-none"
               />
             </div>
-            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
+            <div className="flex gap-2.5 pt-3 border-t border-white/10">
               <button
                 type="button"
                 onClick={() =>
                   setRescheduleData({ ...rescheduleData, isOpen: false })
                 }
-                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                className="flex-1 py-2 bg-white/5 text-slate-300 rounded-xl text-xs font-semibold"
               >
                 إلغاء
               </button>
@@ -1119,10 +2273,6 @@ export default function Appointments() {
                 type="button"
                 disabled={rescheduleMutation.isPending}
                 onClick={() => {
-                  if (!rescheduleData.newDate) {
-                    showToast("يرجى تحديد الموعد الجديد", "error");
-                    return;
-                  }
                   const newDateObj = new Date(rescheduleData.newDate);
                   if (isNaN(newDateObj.getTime())) {
                     showToast("تاريخ الموعد الجديد غير صالح", "error");
@@ -1133,7 +2283,7 @@ export default function Appointments() {
                     newDate: newDateObj.toISOString(),
                   });
                 }}
-                className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-teal-500 hover:bg-teal-400 text-slate-950 py-2 rounded-xl text-xs font-bold"
               >
                 {rescheduleMutation.isPending
                   ? "جاري الحفظ..."
@@ -1144,36 +2294,39 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 🌟 نافذة تحويل الموعد إلى فاتورة فورية + طباعة */}
+      {/* 🌟 نافذة تحويل الموعد إلى فاتورة فورية */}
       {invoiceModal.isOpen && invoiceModal.appointment && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
-              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
-                <Printer className="w-5 h-5 text-[var(--primary-base)]" />
+          <div
+            dir="rtl"
+            className="bg-[#0d1527]/90 backdrop-blur-2xl border border-teal-500/25 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4 text-right"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Printer className="w-5 h-5 text-teal-400" />
                 إصدار وطباعة فاتورة الكشف
               </h3>
               <button
                 onClick={() =>
                   setInvoiceModal({ ...invoiceModal, isOpen: false })
                 }
-                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
+                className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="bg-[var(--bg-elevated)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-default)] space-y-1 text-xs">
-              <p className="text-[var(--text-secondary)]">
+            <div className="bg-[#070b14]/60 p-3 rounded-xl border border-white/10 space-y-1 text-xs">
+              <p className="text-slate-300">
                 المريض:{" "}
-                <span className="font-semibold text-[var(--text-main)]">
+                <b className="text-white">
                   {invoiceModal.appointment.patient_name}
-                </span>
+                </b>
               </p>
-              <p className="text-[var(--text-secondary)]">
+              <p className="text-slate-300">
                 الطبيب:{" "}
-                <span className="font-semibold text-[var(--primary-base)]">
+                <b className="text-teal-400">
                   د. {invoiceModal.appointment.doctor_name}
-                </span>
+                </b>
               </p>
             </div>
             <form
@@ -1187,7 +2340,6 @@ export default function Appointments() {
                 const paid = invoiceModal.paidAmount
                   ? parseFloat(invoiceModal.paidAmount)
                   : 0;
-
                 if (paid > price) {
                   showToast(
                     "المبلغ المدفوع لا يمكن أن يكون أكبر من إجمالي الفاتورة",
@@ -1196,7 +2348,7 @@ export default function Appointments() {
                   return;
                 }
 
-                const payload = {
+                convertToInvoiceMutation.mutate({
                   patient_id: invoiceModal.appointment.patient_id,
                   appointment_id: invoiceModal.appointment.id,
                   doctor_id: invoiceModal.appointment.doctor_id,
@@ -1216,13 +2368,12 @@ export default function Appointments() {
                           notes: "دفعة فورية عند تحويل الموعد",
                         }
                       : null,
-                };
-                convertToInvoiceMutation.mutate(payload);
+                });
               }}
               className="space-y-3.5"
             >
               <div>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                <label className="block text-xs font-medium text-slate-300 mb-1">
                   وصف الخدمة / الإجراء *
                 </label>
                 <input
@@ -1235,12 +2386,12 @@ export default function Appointments() {
                       itemDescription: e.target.value,
                     })
                   }
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                  className="w-full bg-[#070b14] border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
                     السعر الإجمالي (ج.م) *
                   </label>
                   <input
@@ -1256,11 +2407,11 @@ export default function Appointments() {
                         itemPrice: e.target.value,
                       })
                     }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                    className="w-full bg-[#070b14] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
                     المدفوع الآن نقداً (ج.م)
                   </label>
                   <input
@@ -1275,13 +2426,12 @@ export default function Appointments() {
                         paidAmount: e.target.value,
                       })
                     }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                    className="w-full bg-[#070b14] border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono"
                   />
                 </div>
               </div>
 
-              {/* خيار طباعة الفاتورة الاختياري */}
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)] select-none pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 pt-1">
                 <input
                   type="checkbox"
                   checked={invoiceModal.autoPrint}
@@ -1291,34 +2441,29 @@ export default function Appointments() {
                       autoPrint: e.target.checked,
                     })
                   }
-                  className="w-3.5 h-3.5 rounded border-[var(--border-default)] bg-[var(--bg-app)] text-[var(--primary-base)] focus:ring-0 cursor-pointer"
+                  className="rounded accent-teal-500 w-4 h-4"
                 />
                 <span>طباعة الفاتورة فور الإصدار</span>
               </label>
 
-              <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
+              <div className="flex gap-2.5 pt-3 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() =>
                     setInvoiceModal({ ...invoiceModal, isOpen: false })
                   }
-                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                  className="flex-1 py-2 bg-white/5 text-slate-300 rounded-xl text-xs font-semibold"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={convertToInvoiceMutation.isPending}
-                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className="flex-1 bg-teal-500 hover:bg-teal-400 text-slate-950 py-2 rounded-xl text-xs font-bold"
                 >
-                  {convertToInvoiceMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>جاري الحفظ...</span>
-                    </>
-                  ) : (
-                    <span>إصدار الفاتورة</span>
-                  )}
+                  {convertToInvoiceMutation.isPending
+                    ? "جاري الحفظ..."
+                    : "إصدار الفاتورة"}
                 </button>
               </div>
             </form>
@@ -1326,49 +2471,24 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 🌟 التوست الموحد */}
-      {toast && (
-        <div
-          className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-btn)] shadow-elevation border text-sm font-medium transition-all ${
-            toast.type === "error"
-              ? "bg-[var(--bg-elevated)] border-[var(--danger-text)]/30 text-[var(--danger-text)]"
-              : "bg-[var(--bg-elevated)] border-[var(--success-text)]/30 text-[var(--success-text)]"
-          }`}
-        >
-          {toast.type === "error" ? (
-            <AlertTriangle className="w-4 h-4 text-[var(--danger-text)] shrink-0" />
-          ) : (
-            <Check className="w-4 h-4 text-[var(--success-text)] shrink-0" />
-          )}
-          <span>{toast.message}</span>
-        </div>
-      )}
-
       {/* 🌟 نافذة تأكيد حذف الموعد */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
-            <div className="flex items-center gap-3 text-[var(--danger-text)]">
-              <div className="p-2.5 bg-[var(--danger-bg)] rounded-[var(--radius-btn)] border border-[var(--danger-text)]/20">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-[var(--text-main)]">
-                  تأكيد حذف الموعد
-                </h3>
-                <p className="text-xs text-[var(--text-muted)]">
-                  هذا الإجراء سيحذف الموعد نهائياً من قاعدة البيانات
-                </p>
-              </div>
+          <div
+            dir="rtl"
+            className="bg-[#0d1527]/95 backdrop-blur-2xl border border-rose-500/30 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4 text-right"
+          >
+            <div className="flex items-center gap-3 text-rose-400">
+              <Trash2 className="w-6 h-6" />
+              <h3 className="text-base font-bold text-white">
+                تأكيد حذف الموعد نهائياً
+              </h3>
             </div>
-            <p className="text-sm text-[var(--text-secondary)]">
+            <p className="text-sm text-slate-300">
               هل أنت متأكد من حذف موعد المريض{" "}
-              <span className="font-semibold text-[var(--text-main)]">
-                "{deleteModal.patientName}"
-              </span>
-              ؟
+              <b className="text-white">"{deleteModal.patientName}"</b>؟
             </p>
-            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
+            <div className="flex gap-2.5 pt-3 border-t border-white/10">
               <button
                 type="button"
                 onClick={() =>
@@ -1378,7 +2498,7 @@ export default function Appointments() {
                     patientName: "",
                   })
                 }
-                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
+                className="flex-1 py-2 bg-white/5 text-slate-300 rounded-xl text-xs font-semibold"
               >
                 إلغاء
               </button>
@@ -1388,7 +2508,7 @@ export default function Appointments() {
                 onClick={() =>
                   deleteAppointmentMutation.mutate(deleteModal.appointmentId)
                 }
-                className="flex-1 bg-[var(--danger-text)] hover:opacity-90 text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-xl text-xs font-bold"
               >
                 {deleteAppointmentMutation.isPending
                   ? "جاري الحذف..."
@@ -1399,95 +2519,36 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* 🌟 نافذة إعدادات مدة الكشف */}
-      {durationSettingsOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
-              <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
-                <Clock className="w-5 h-5 text-[var(--primary-base)]" />
-                مدة الكشف الافتراضية
-              </h3>
-              <button
-                type="button"
-                onClick={() => setDurationSettingsOpen(false)}
-                className="text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] p-1 hover:bg-[var(--bg-elevated)] transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div>
-              <p className="text-xs text-[var(--text-secondary)] mb-3">
-                حدد المدة التي يتم استخدامها تلقائياً عند إنشاء حجز جديد.
-              </p>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
-                مدة الكشف (بالدقائق)
-              </label>
-              <input
-                type="number"
-                min="5"
-                max="480"
-                value={defaultDuration}
-                onChange={(e) => setDefaultDuration(e.target.value)}
-                className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2.5 text-[var(--text-main)] font-mono text-sm focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-              />
-              <div className="flex flex-wrap gap-2 mt-3">
-                {[15, 30, 45, 60, 90, 120].map((minutes) => (
-                  <button
-                    key={minutes}
-                    type="button"
-                    onClick={() => setDefaultDuration(minutes)}
-                    className={`px-3 py-1.5 rounded-[var(--radius-btn)] text-xs font-medium border transition-colors ${
-                      Number(defaultDuration) === minutes
-                        ? "bg-[var(--primary-muted)] text-[var(--primary-base)] border-[var(--primary-base)]/30"
-                        : "bg-[var(--bg-app)] text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-[var(--bg-elevated)]"
-                    }`}
-                  >
-                    {minutes} دقيقة
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                مسموح من 5 إلى 480 دقيقة (8 ساعات).
-              </p>
-            </div>
-            <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
-              <button
-                type="button"
-                onClick={() => setDurationSettingsOpen(false)}
-                className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] text-xs font-medium transition-colors"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={updateDurationMutation.isPending}
-                onClick={() => {
-                  const value = Number(defaultDuration);
-                  if (!Number.isInteger(value) || value < 5 || value > 480) {
-                    showToast(
-                      "مدة الكشف يجب أن تكون بين 5 و480 دقيقة",
-                      "error",
-                    );
-                    return;
-                  }
-                  updateDurationMutation.mutate(value);
-                }}
-                className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white py-2 rounded-[var(--radius-btn)] text-xs font-medium transition-colors disabled:opacity-50"
-              >
-                {updateDurationMutation.isPending
-                  ? "جاري الحفظ..."
-                  : "حفظ الإعداد"}
-              </button>
-            </div>
-          </div>
+      {/* 🌟 التوست الموحد */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl backdrop-blur-xl border text-sm font-semibold transition-all ${
+            toast.type === "error"
+              ? "bg-rose-950/90 border-rose-500/40 text-rose-200"
+              : "bg-teal-950/90 border-teal-500/40 text-teal-200"
+          }`}
+        >
+          {toast.type === "error" ? (
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <Check className="w-4 h-4 text-teal-400 shrink-0" />
+          )}
+          <span>{toast.message}</span>
         </div>
       )}
 
-      {/* المودال الموحد الذكي لحجز المواعيد */}
+      {/* المودال الموحد الذكي لحجز المواعيد (يدعم التعبئة المسبقة للطبيب والوقت) */}
       <BookAppointmentModal
-        isOpen={isBookModalOpen}
-        onClose={() => setIsBookModalOpen(false)}
+        isOpen={bookModalState.isOpen}
+        initialDoctorId={bookModalState.initialDoctorId}
+        initialDate={bookModalState.initialDate}
+        onClose={() =>
+          setBookModalState({
+            isOpen: false,
+            initialDoctorId: "",
+            initialDate: "",
+          })
+        }
       />
     </div>
   );

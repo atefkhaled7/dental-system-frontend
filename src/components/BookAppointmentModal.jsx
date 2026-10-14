@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
+import { useAuth } from "../context/AuthContext";
 import {
   X,
   Calendar,
@@ -12,10 +13,11 @@ import {
   CheckCircle2,
   Search,
   UserPlus,
-  Stethoscope,
-  FileText,
+  ShieldAlert,
+  AlertOctagon,
   AlertTriangle,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 
 // دالة آمنة لتحويل أي تاريخ أو ISO String لصيغة input datetime-local (YYYY-MM-DDTHH:mm)
@@ -40,6 +42,7 @@ export default function BookAppointmentModal({
   initialDate = "",
 }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // 1. جلب قائمة الأطباء النشطين
   const { data: doctors = [] } = useQuery({
@@ -67,7 +70,7 @@ export default function BookAppointmentModal({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  // Debounce للبحث لمنع الريكويستات الزائدة مع كل حرف
+  // Debounce للبحث لمنع الريكويستات الزائدة
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(patientSearchQuery.trim());
@@ -110,6 +113,7 @@ export default function BookAppointmentModal({
   const [notes, setNotes] = useState("");
 
   const [errorMessage, setErrorMessage] = useState("");
+  const [canOverrideConflict, setCanOverrideConflict] = useState(false);
   const dropdownRef = useRef(null);
 
   // تحديث القيم الابتدائية عند فتح المودال
@@ -124,11 +128,14 @@ export default function BookAppointmentModal({
       }
 
       const initialFormatted = initialDate
-        ? formatToDateTimeLocal(initialDate)
+        ? typeof initialDate === "string" && initialDate.length === 16
+          ? initialDate
+          : formatToDateTimeLocal(initialDate)
         : formatToDateTimeLocal(new Date());
 
       setAppointmentDate(initialFormatted);
       setErrorMessage("");
+      setCanOverrideConflict(false);
     }
   }, [isOpen, clinicSettings, initialDoctorId, initialDate]);
 
@@ -143,14 +150,12 @@ export default function BookAppointmentModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // دالة اختيار مريض موجود
   const handleSelectPatient = (patient) => {
     setSelectedPatient(patient);
     setPatientSearchQuery(patient.name);
     setIsDropdownOpen(false);
   };
 
-  // دالة إلغاء تحديد المريض
   const handleClearSelectedPatient = () => {
     setSelectedPatient(null);
     setPatientSearchQuery("");
@@ -164,6 +169,7 @@ export default function BookAppointmentModal({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-appointments"] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       handleClose();
@@ -173,6 +179,15 @@ export default function BookAppointmentModal({
         err.response?.data?.error ||
         "حدث خطأ أثناء حجز الموعد، يرجى المحاولة ثانية";
       setErrorMessage(msg);
+
+      if (
+        err.response?.status === 409 &&
+        err.response?.data?.can_override === true
+      ) {
+        setCanOverrideConflict(true);
+      } else {
+        setCanOverrideConflict(false);
+      }
     },
   });
 
@@ -190,33 +205,31 @@ export default function BookAppointmentModal({
     setAppointmentDate("");
     setNotes("");
     setErrorMessage("");
+    setCanOverrideConflict(false);
     onClose();
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setErrorMessage("");
-
+  const buildPayload = (allowOverride = false) => {
     if (!doctorId) {
       setErrorMessage("يرجى اختيار الطبيب المعالج");
-      return;
+      return null;
     }
 
     if (!appointmentDate) {
       setErrorMessage("يرجى تحديد تاريخ ووقت الموعد");
-      return;
+      return null;
     }
 
     const apptDateObj = new Date(appointmentDate);
     if (isNaN(apptDateObj.getTime())) {
       setErrorMessage("صيغة تاريخ ووقت الموعد غير صالحة");
-      return;
+      return null;
     }
 
     const duration = parseInt(durationMinutes, 10);
     if (isNaN(duration) || duration < 5 || duration > 480) {
       setErrorMessage("مدة الكشف يجب أن تكون بين 5 و 480 دقيقة");
-      return;
+      return null;
     }
 
     const payload = {
@@ -224,6 +237,7 @@ export default function BookAppointmentModal({
       appointment_date: apptDateObj.toISOString(),
       duration_minutes: duration,
       notes: notes.trim() || null,
+      allow_override: allowOverride,
     };
 
     if (selectedPatient) {
@@ -231,11 +245,11 @@ export default function BookAppointmentModal({
     } else {
       if (!patientSearchQuery.trim() || patientSearchQuery.trim().length < 2) {
         setErrorMessage("اسم المريض الجديد مطلوب ويجب ألا يقل عن حرفين");
-        return;
+        return null;
       }
       if (patientSearchQuery.trim().length > 100) {
         setErrorMessage("اسم المريض يجب ألا يتجاوز 100 حرف");
-        return;
+        return null;
       }
       if (
         !newPatientData.phone_number ||
@@ -244,7 +258,7 @@ export default function BookAppointmentModal({
         setErrorMessage(
           "رقم هاتف المريض الجديد مطلوب ويجب ألا يقل عن 10 أرقام",
         );
-        return;
+        return null;
       }
 
       payload.new_patient = {
@@ -256,7 +270,24 @@ export default function BookAppointmentModal({
       };
     }
 
-    bookMutation.mutate(payload);
+    return payload;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setErrorMessage("");
+    setCanOverrideConflict(false);
+    const payload = buildPayload(false);
+    if (payload) {
+      bookMutation.mutate(payload);
+    }
+  };
+
+  const handleForceOverrideBooking = () => {
+    const payload = buildPayload(true);
+    if (payload) {
+      bookMutation.mutate(payload);
+    }
   };
 
   if (!isOpen) return null;
@@ -265,17 +296,31 @@ export default function BookAppointmentModal({
     !selectedPatient && patientSearchQuery.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl bg-[#0d1527] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#04070e]/75 backdrop-blur-md animate-in fade-in duration-200">
+      {/* كارت المودال الزجاجي الفخم */}
+      <div className="relative w-full max-w-2xl bg-[#0d1527]/85 backdrop-blur-2xl border border-teal-500/25 rounded-2xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col max-h-[92vh]">
+        {/* إضاءة خلفية ناعمة داخل الزجاج */}
+        <div className="absolute -top-24 -right-24 w-56 h-56 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-56 h-56 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#070b14]/50">
-          <div className="flex items-center gap-2 text-teal-400">
-            <Calendar className="w-5 h-5" />
-            <h2 className="text-lg font-bold text-slate-100">حجز كشف جديد</h2>
+        <div className="relative flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#070b14]/60 backdrop-blur-xl">
+          <div className="flex items-center gap-2.5 text-teal-400">
+            <div className="p-2 rounded-xl bg-teal-500/15 border border-teal-500/30">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-slate-100">
+                حجز موعد كشف جديد
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                محمي بمحرك فحص التعارضات وتزامن الكراسي الذكي
+              </p>
+            </div>
           </div>
           <button
             onClick={handleClose}
-            className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-white/10 rounded-xl transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -284,34 +329,67 @@ export default function BookAppointmentModal({
         {/* Content */}
         <form
           onSubmit={handleSubmit}
-          className="p-6 overflow-y-auto space-y-5 text-right"
+          className="relative p-6 overflow-y-auto space-y-5 text-right"
+          dir="rtl"
         >
-          {/* تنبيه الخطأ */}
+          {/* تنبيه الخطأ أو التعارض مع زر التجاوز للمدير */}
           {errorMessage && (
-            <div className="flex items-start gap-3 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-sm">
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
+            <div className="p-4 bg-rose-500/15 backdrop-blur-md border border-rose-500/35 rounded-xl text-rose-200 text-sm space-y-3 shadow-lg shadow-rose-950/30">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-semibold block">{errorMessage}</span>
+                </div>
+              </div>
+
+              {canOverrideConflict && user?.role === "ClinicAdmin" && (
+                <div className="pt-2.5 border-t border-rose-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-xs text-amber-300 flex items-center gap-1.5 font-medium">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    بصفتك مدير العيادة، يمكنك فرض الحجز وتجاوز هذا التعارض:
+                  </span>
+                  <button
+                    type="button"
+                    disabled={bookMutation.isPending}
+                    onClick={handleForceOverrideBooking}
+                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition-all shrink-0 shadow-md"
+                  >
+                    تجاوز التعارض وتأكيد الحجز
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {/* 1. قسم بيانات المريض */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-slate-300">
+            <label className="block text-xs sm:text-sm font-semibold text-slate-300">
               المريض <span className="text-rose-400">*</span>
             </label>
 
             {selectedPatient ? (
-              // بطاقة المريض المختار
-              <div className="flex items-center justify-between p-3.5 bg-teal-500/10 border border-teal-500/30 rounded-xl">
+              <div className="flex items-center justify-between p-3.5 bg-teal-500/10 backdrop-blur-md border border-teal-500/30 rounded-xl">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-300">
-                    <User className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center text-teal-300 font-bold">
+                    {selectedPatient.name?.charAt(0) || (
+                      <User className="w-5 h-5" />
+                    )}
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-100">
-                      {selectedPatient.name}
-                    </h4>
-                    <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-slate-100 text-sm">
+                        {selectedPatient.name}
+                      </h4>
+                      {selectedPatient.alert_level === "critical" && (
+                        <span className="inline-flex items-center gap-1 text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold">
+                          <AlertOctagon className="w-3 h-3" /> تنبيه حرج
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 font-mono"
+                      dir="ltr"
+                    >
                       <Phone className="w-3.5 h-3.5 text-teal-400" />
                       {selectedPatient.phone_number}
                     </p>
@@ -320,13 +398,12 @@ export default function BookAppointmentModal({
                 <button
                   type="button"
                   onClick={handleClearSelectedPatient}
-                  className="text-xs text-slate-400 hover:text-rose-300 px-2.5 py-1 rounded-lg hover:bg-slate-800/80 transition-colors"
+                  className="text-xs text-slate-300 hover:text-rose-300 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/15 border border-white/10 transition-colors"
                 >
                   تغيير المريض
                 </button>
               </div>
             ) : (
-              // حقل البحث الذكي
               <div className="relative" ref={dropdownRef}>
                 <div className="relative">
                   <input
@@ -337,47 +414,56 @@ export default function BookAppointmentModal({
                       setIsDropdownOpen(true);
                     }}
                     onFocus={() => setIsDropdownOpen(true)}
-                    placeholder="اكتب اسم المريض أو رقم الهاتف للبحث..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/50 text-sm"
+                    placeholder="ابحث باسم المريض أو رقم الهاتف (أو اكتب اسماً جديداً)..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#070b14]/80 border border-white/10 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-teal-400/60 focus:ring-2 focus:ring-teal-500/15 text-sm transition-all"
                   />
-                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 </div>
 
-                {/* القائمة المنسدلة للنتائج */}
                 {isDropdownOpen && debouncedSearch && (
-                  <div className="absolute top-full left-0 right-0 mt-1.5 max-h-56 overflow-y-auto bg-[#070b14] border border-slate-800 rounded-xl shadow-xl z-20 divide-y divide-slate-800/50">
+                  <div className="absolute top-full left-0 right-0 mt-1.5 max-h-56 overflow-y-auto bg-[#090f1d]/95 backdrop-blur-xl border border-teal-500/25 rounded-xl shadow-2xl z-20 divide-y divide-white/5">
                     {isSearchingPatients ? (
-                      <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-400" />
-                        <span>جاري البحث في قاعدة البيانات...</span>
+                      <div className="p-3.5 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                        <span>جاري البحث في ملفات المرضى...</span>
                       </div>
                     ) : filteredPatients.length > 0 ? (
                       filteredPatients.map((p) => (
                         <div
                           key={p.id}
                           onClick={() => handleSelectPatient(p)}
-                          className="p-3 hover:bg-slate-800/60 cursor-pointer flex items-center justify-between transition-colors"
+                          className="p-3 hover:bg-teal-500/10 cursor-pointer flex items-center justify-between transition-colors"
                         >
                           <div>
-                            <p className="text-sm font-semibold text-slate-200">
+                            <p className="text-sm font-semibold text-slate-100">
                               {p.name}
                             </p>
-                            <p className="text-xs text-slate-400">
+                            <p
+                              className="text-xs text-slate-400 font-mono"
+                              dir="ltr"
+                            >
                               {p.phone_number}
                             </p>
                           </div>
 
-                          {p.medical_alerts && (
-                            <span className="text-[11px] bg-amber-500/10 text-amber-300 px-2 py-0.5 rounded-md border border-amber-500/20">
-                              تنبيه طبي
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {p.alert_level === "critical" ? (
+                              <span className="text-[11px] bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full border border-rose-500/30 font-semibold">
+                                تنبيه حرج
+                              </span>
+                            ) : p.alert_level === "moderate" ||
+                              p.medical_alerts ? (
+                              <span className="text-[11px] bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                تنبيه طبي
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       ))
                     ) : (
-                      <div className="p-3 text-center text-xs text-slate-400">
-                        لا يوجد مريض مسجل بهذا الاسم. سيتم إنشاؤه كمريض جديد
-                        تلقائياً 👇
+                      <div className="p-3 text-center text-xs text-teal-300 bg-teal-500/5">
+                        غير مسجل مسبقاً — سيتم إنشاء ملف جديد باسم "
+                        {patientSearchQuery}" تلقائياً 👇
                       </div>
                     )}
                   </div>
@@ -387,10 +473,10 @@ export default function BookAppointmentModal({
 
             {/* الحقول الإضافية إذا كان مريضاً جديداً */}
             {isNewPatientMode && (
-              <div className="p-4 bg-slate-900/60 border border-slate-800/80 rounded-xl space-y-3.5 animate-fadeIn">
-                <div className="flex items-center gap-2 text-xs font-semibold text-teal-400 mb-1">
+              <div className="p-4 bg-[#070b14]/60 backdrop-blur-md border border-teal-500/20 rounded-xl space-y-3.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-teal-400">
                   <UserPlus className="w-4 h-4" />
-                  <span>إكمال بيانات المريض الجديد ({patientSearchQuery})</span>
+                  <span>بيانات المريض الجديد ({patientSearchQuery})</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -408,7 +494,7 @@ export default function BookAppointmentModal({
                         })
                       }
                       placeholder="01xxxxxxxxx"
-                      className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-lg text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
+                      className="w-full px-3 py-2 bg-[#0d1527]/90 border border-white/10 rounded-lg text-slate-100 text-sm font-mono focus:border-teal-400 focus:outline-none"
                     />
                   </div>
 
@@ -424,7 +510,7 @@ export default function BookAppointmentModal({
                           gender: e.target.value,
                         })
                       }
-                      className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-lg text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
+                      className="w-full px-3 py-2 bg-[#0d1527]/90 border border-white/10 rounded-lg text-slate-100 text-sm focus:border-teal-400 focus:outline-none"
                     >
                       <option value="Male">ذكر</option>
                       <option value="Female">أنثى</option>
@@ -446,13 +532,13 @@ export default function BookAppointmentModal({
                           date_of_birth: e.target.value,
                         })
                       }
-                      className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-lg text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
+                      className="w-full px-3 py-2 bg-[#0d1527]/90 border border-white/10 rounded-lg text-slate-100 text-sm font-mono focus:border-teal-400 focus:outline-none"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1">
-                      تنبيهات طبية (حساسية، أمراض مزمنة...)
+                      تنبيهات طبية سريعة
                     </label>
                     <input
                       type="text"
@@ -463,8 +549,8 @@ export default function BookAppointmentModal({
                           medical_alerts: e.target.value,
                         })
                       }
-                      placeholder="مثال: حساسية بنسلين، ضغط، سكر..."
-                      className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-lg text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
+                      placeholder="حساسية بنسلين، سيولة دم، سكر..."
+                      className="w-full px-3 py-2 bg-[#0d1527]/90 border border-white/10 rounded-lg text-slate-100 text-sm focus:border-teal-400 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -474,41 +560,39 @@ export default function BookAppointmentModal({
 
           {/* 2. اختيار الطبيب المعالج */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs sm:text-sm font-semibold text-slate-300 mb-1.5">
               الطبيب المعالج <span className="text-rose-400">*</span>
             </label>
-            <div className="relative">
-              <select
-                value={doctorId}
-                onChange={(e) => setDoctorId(e.target.value)}
-                className="w-full px-3 py-2.5 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
-              >
-                <option value="">-- اختر الطبيب --</option>
-                {doctors.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    د. {doc.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={doctorId}
+              onChange={(e) => setDoctorId(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-[#070b14]/80 border border-white/10 rounded-xl text-slate-100 text-sm focus:border-teal-400 focus:outline-none transition-colors"
+            >
+              <option value="">-- اختر الطبيب --</option>
+              {doctors.map((doc) => (
+                <option key={doc.id} value={doc.id}>
+                  د. {doc.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* 3. تاريخ ووقت الموعد + المدة */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
+              <label className="block text-xs sm:text-sm font-semibold text-slate-300 mb-1.5">
                 تاريخ ووقت الموعد <span className="text-rose-400">*</span>
               </label>
               <input
                 type="datetime-local"
                 value={appointmentDate}
                 onChange={(e) => setAppointmentDate(e.target.value)}
-                className="w-full px-3 py-2.5 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none"
+                className="w-full px-3.5 py-2.5 bg-[#070b14]/80 border border-white/10 rounded-xl text-slate-100 text-sm font-mono focus:border-teal-400 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
+              <label className="block text-xs sm:text-sm font-semibold text-slate-300 mb-1.5">
                 مدة الكشف (بالدقائق)
               </label>
               <div className="flex items-center gap-2">
@@ -518,18 +602,18 @@ export default function BookAppointmentModal({
                   max="480"
                   value={durationMinutes}
                   onChange={(e) => setDurationMinutes(e.target.value)}
-                  className="w-24 px-3 py-2.5 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none text-center"
+                  className="w-20 px-2.5 py-2.5 bg-[#070b14]/80 border border-white/10 rounded-xl text-slate-100 text-sm font-mono focus:border-teal-400 focus:outline-none text-center"
                 />
                 <div className="flex items-center gap-1 flex-wrap">
-                  {[15, 30, 45, 60, 90, 120].map((mins) => (
+                  {[15, 30, 45, 60, 90].map((mins) => (
                     <button
                       key={mins}
                       type="button"
                       onClick={() => setDurationMinutes(mins)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                         Number(durationMinutes) === mins
-                          ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
-                          : "bg-slate-800/40 text-slate-400 border-slate-800 hover:bg-slate-800"
+                          ? "bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-sm"
+                          : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-slate-200"
                       }`}
                     >
                       {mins} د
@@ -542,24 +626,24 @@ export default function BookAppointmentModal({
 
           {/* 4. ملاحظات الكشف */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs sm:text-sm font-semibold text-slate-300 mb-1.5">
               ملاحظات أو سبب الزيارة (اختياري)
             </label>
             <textarea
               rows="2"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="مثال: فحص دوري، ألم في الضرس السفلي، حشو..."
-              className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-slate-100 text-sm focus:border-teal-500/50 focus:outline-none resize-none"
+              placeholder="مثال: ألم بالضرس السفلي، جلسة تنظيف، متابعة تقويم..."
+              className="w-full px-3.5 py-2 bg-[#070b14]/80 border border-white/10 rounded-xl text-slate-100 text-sm focus:border-teal-400 focus:outline-none resize-none"
             />
           </div>
 
           {/* أزرار الحفظ والإلغاء */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/80">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-xl transition-colors"
+              className="px-4 py-2.5 text-xs sm:text-sm font-medium text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors"
             >
               إلغاء
             </button>
@@ -567,7 +651,7 @@ export default function BookAppointmentModal({
             <button
               type="submit"
               disabled={bookMutation.isPending}
-              className="flex items-center gap-2 px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-slate-950 font-bold rounded-xl shadow-lg shadow-teal-900/30 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-6 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-teal-500/20 transition-all disabled:opacity-50"
             >
               {bookMutation.isPending ? (
                 <>

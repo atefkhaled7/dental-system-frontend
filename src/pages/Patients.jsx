@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useQuery,
   useMutation,
@@ -14,19 +14,144 @@ import {
   Search,
   Phone,
   AlertTriangle,
+  AlertOctagon,
   X,
   Loader2,
   Check,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Download,
   Upload,
   FileSpreadsheet,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function Patients() {
   const { user } = useAuth();
-  // دالة التحميل المباشرة:
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
   const [isExporting, setIsExporting] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
+  const [page, setPage] = useState(1);
+  const limit = 10;
+  const [search, setSearch] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  // أقسام المودال القابلة للطي
+  const [openSections, setOpenSections] = useState({
+    guardian: false,
+    emergency: false,
+    additional: false,
+  });
+
+  // فحص تكرار رقم الهاتف اللحظي
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [isCheckingPhone, setIsCheckingPhone] = useState(false);
+
+  // فورم إضافة مريض موسع
+  const [formData, setFormData] = useState({
+    name: "",
+    phone_number: "",
+    gender: "Male",
+    date_of_birth: "",
+    medical_alerts: "",
+    address: "",
+    email: "",
+    emergency_contact_name: "",
+    emergency_contact_phone: "",
+    guardian_name: "",
+    guardian_phone: "",
+    guardian_relation: "والد",
+    referral_source: "",
+    referral_note: "",
+  });
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // حساب عمر المريض لمعرفة هل تحت 18 سنة
+  const calculateAge = (dobString) => {
+    if (!dobString) return null;
+    const dob = new Date(dobString);
+    if (isNaN(dob.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const isMinor =
+    formData.date_of_birth &&
+    calculateAge(formData.date_of_birth) !== null &&
+    calculateAge(formData.date_of_birth) < 18;
+
+  // فتح قسم ولي الأمر تلقائياً لو المريض تحت 18 سنة
+  useEffect(() => {
+    if (isMinor) {
+      setOpenSections((prev) => ({ ...prev, guardian: true }));
+    }
+  }, [isMinor]);
+
+  // فحص تكرار الهاتف في الباك إند مع Debounce
+  useEffect(() => {
+    const phone = formData.phone_number.trim();
+    let cancelled = false;
+
+    if (phone.length < 10) {
+      setDuplicateWarning(null);
+      setIsCheckingPhone(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+
+      setIsCheckingPhone(true);
+
+      try {
+        const res = await api.get("/patients/check-phone", {
+          params: { phone },
+        });
+
+        // تجاهل نتيجة أي رقم قديم
+        if (cancelled) return;
+
+        if (res.data?.exists) {
+          setDuplicateWarning(
+            `رقم الهاتف مسجل بالفعل للمريض (${res.data.patient.name})`,
+          );
+        } else {
+          setDuplicateWarning(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Phone check error:", err);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingPhone(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [formData.phone_number]);
 
   const handleExportPatients = async () => {
     try {
@@ -37,31 +162,22 @@ export default function Patients() {
       link.href = url;
       link.setAttribute(
         "download",
-        `patients_${new Date().toISOString().split("T")[0]}.csv`
+        `patients_${new Date().toISOString().split("T")[0]}.csv`,
       );
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url);
-      }, 100);
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
     } catch (err) {
       showToast(
         err.response?.data?.error || "فشل تصدير بيانات المرضى",
-        "error"
+        "error",
       );
     } finally {
       setIsExporting(false);
     }
   };
 
-  // 🌟 حالات مودال الاستيراد
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importFile, setImportFile] = useState(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
-
-  // دالة تحميل قالب CSV تجريبي للمستخدم
   const handleDownloadSampleCsv = () => {
     const sampleContent =
       "\uFEFFاسم المريض,رقم الهاتف,النوع,تاريخ الميلاد,التنبيهات الطبية\n" +
@@ -80,21 +196,17 @@ export default function Patients() {
     URL.revokeObjectURL(url);
   };
 
-  // دالة رفع واستيراد الملف
   const handleImportSubmit = async (e) => {
     e.preventDefault();
     if (!importFile) {
       showToast("يرجى اختيار ملف CSV أولاً", "error");
       return;
     }
-
     try {
       setIsImporting(true);
-      const formData = new FormData();
-      formData.append("file", importFile);
-
-      const res = await api.post("/patients/import", formData);
-
+      const data = new FormData();
+      data.append("file", importFile);
+      const res = await api.post("/patients/import", data);
       queryClient.invalidateQueries({ queryKey: ["patients"] });
       setImportResult(res.data);
       showToast(res.data.message || "تم استيراد المرضى بنجاح", "success");
@@ -105,43 +217,16 @@ export default function Patients() {
     }
   };
 
-  const [page, setPage] = useState(1);
-  const limit = 10; // عدد العناصر في الصفحة
-
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
-  const [toast, setToast] = useState(null);
-
-  // فورم إضافة مريض جديد
-  const [formData, setFormData] = useState({
-    name: "",
-    phone_number: "",
-    gender: "Male",
-    date_of_birth: "",
-    medical_alerts: "",
-  });
-
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  // لما المستخدم يكتب في السيرش نرجعه للصفحة الأولى
   const handleSearchChange = (e) => {
     setSearch(e.target.value);
     setPage(1);
   };
 
-  // لما يغير التبويب بين النشط والمؤرشف نرجعه للصفحة الأولى
   const handleTabChange = (status) => {
     setShowArchived(status);
     setPage(1);
   };
 
-  // 1. جلب قائمة المرضى
   const { data, isLoading } = useQuery({
     queryKey: ["patients", { page, limit, search, showArchived }],
     queryFn: async () => {
@@ -153,7 +238,6 @@ export default function Patients() {
           archived: showArchived ? "true" : undefined,
         },
       });
-
       return res.data;
     },
     placeholderData: keepPreviousData,
@@ -162,7 +246,6 @@ export default function Patients() {
   const patients = data?.patients || [];
   const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
 
-  // 2. إضافة مريض جديد
   const addPatientMutation = useMutation({
     mutationFn: async (newPatient) => {
       const res = await api.post("/patients", newPatient);
@@ -177,9 +260,18 @@ export default function Patients() {
         gender: "Male",
         date_of_birth: "",
         medical_alerts: "",
+        address: "",
+        email: "",
+        emergency_contact_name: "",
+        emergency_contact_phone: "",
+        guardian_name: "",
+        guardian_phone: "",
+        guardian_relation: "والد",
+        referral_source: "",
+        referral_note: "",
       });
+      setDuplicateWarning(null);
       showToast("تمت إضافة المريض بنجاح", "success");
-      // اختياري: لو حابب تفتحه مباشرة بعد الإضافة:
       if (data?.patient?.id) {
         navigate(`/patients/${data.patient.id}`);
       }
@@ -187,7 +279,7 @@ export default function Patients() {
     onError: (err) => {
       showToast(
         err.response?.data?.error || "حدث خطأ أثناء إضافة المريض",
-        "error"
+        "error",
       );
     },
   });
@@ -200,13 +292,24 @@ export default function Patients() {
       showToast("رقم الهاتف غير صالح (أرقام فقط من 10 إلى 15 رقم)", "error");
       return;
     }
-    if (formData.date_of_birth) {
-      const selectedDate = new Date(formData.date_of_birth);
-      if (selectedDate > new Date()) {
-        showToast("تاريخ الميلاد لا يمكن أن يكون في المستقبل", "error");
+
+    if (isMinor) {
+      if (!formData.guardian_name.trim()) {
+        showToast(
+          "اسم ولي الأمر إلزامي لأن عمر المريض أقل من 18 عاماً",
+          "error",
+        );
+        return;
+      }
+      if (!formData.guardian_phone.trim()) {
+        showToast(
+          "رقم هاتف ولي الأمر إلزامي لأن عمر المريض أقل من 18 عاماً",
+          "error",
+        );
         return;
       }
     }
+
     addPatientMutation.mutate(formData);
   };
 
@@ -230,14 +333,13 @@ export default function Patients() {
         </div>
       )}
 
-      {/* 🌟 الهيدر وزر الإضافة */}
+      {/* الهيدر وزر الإضافة */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[var(--text-main)] flex items-center gap-2.5">
             <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--primary-base)]" />
             سجل المرضى
           </h1>
-
           <p className="text-[var(--text-secondary)] text-xs sm:text-sm mt-1">
             إدارة ملفات المرضى وتاريخهم الطبي والخطط العلاجية
           </p>
@@ -283,7 +385,7 @@ export default function Patients() {
         </div>
       </div>
 
-      {/* 🌟 شريط البحث وتصفية الأرشيف */}
+      {/* شريط البحث وتصفية الأرشيف */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative max-w-md w-full">
           <Search className="w-4 h-4 text-[var(--text-muted)] absolute right-3.5 top-3" />
@@ -307,7 +409,7 @@ export default function Patients() {
         </button>
       </div>
 
-      {/* 🌟 جدول المرضى بنظام (هيدر غامق + داتا فاتحة) مع الانتقال بالضغط */}
+      {/* جدول المرضى */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden shadow-xl">
         {isLoading ? (
           <div className="p-16 flex flex-col items-center justify-center text-[var(--text-secondary)] gap-3">
@@ -351,63 +453,85 @@ export default function Patients() {
                   </th>
                   <th className="py-3.5 px-5 font-medium text-xs">النوع</th>
                   <th className="py-3.5 px-5 font-medium text-xs">
-                    التنبيهات الطبية
+                    الحالة الصحية / التنبيهات
                   </th>
                   <th className="py-3.5 px-5 font-medium text-xs text-left"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
-                {patients.map((patient) => (
-                  <tr
-                    key={patient.id}
-                    onClick={() => navigate(`/patients/${patient.id}`)}
-                    className="hover:bg-[var(--bg-elevated)]/60 cursor-pointer transition-colors group"
-                  >
-                    <td className="py-3.5 px-5 font-semibold text-[var(--text-main)] group-hover:text-[var(--primary-base)] transition-colors">
-                      {patient.name}
-                    </td>
-                    <td className="py-3.5 px-5 font-mono text-xs">
-                      <div className="flex items-center gap-2 text-[var(--text-muted)]">
-                        <Phone className="w-3.5 h-3.5" />
-                        <span dir="ltr">{patient.phone_number}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-5">
-                      <span className="text-xs text-[var(--text-secondary)]">
-                        {patient.gender === "Female" ? "أنثى" : "ذكر"}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-5">
-                      {patient.medical_alerts ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20 text-xs font-medium">
-                          <AlertTriangle className="w-3 h-3" />
-                          {patient.medical_alerts}
+                {patients.map((patient) => {
+                  const isCritical = patient.alert_level === "critical";
+                  const isModerate = patient.alert_level === "moderate";
+
+                  return (
+                    <tr
+                      key={patient.id}
+                      onClick={() => navigate(`/patients/${patient.id}`)}
+                      className="hover:bg-[var(--bg-elevated)]/60 cursor-pointer transition-colors group"
+                    >
+                      <td className="py-3.5 px-5 font-semibold text-[var(--text-main)] group-hover:text-[var(--primary-base)] transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span>{patient.name}</span>
+                          {patient.guardian_name && (
+                            <span className="text-[11px] text-[var(--text-muted)] font-normal">
+                              (ولي الأمر: {patient.guardian_name})
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-5 font-mono text-xs">
+                        <div className="flex items-center gap-2 text-[var(--text-muted)]">
+                          <Phone className="w-3.5 h-3.5" />
+                          <span dir="ltr">{patient.phone_number}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-5">
+                        <span className="text-xs text-[var(--text-secondary)]">
+                          {patient.gender === "Female" ? "أنثى" : "ذكر"}
                         </span>
-                      ) : (
-                        <span className="text-[var(--text-muted)] text-xs">
-                          لا يوجد
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-5 text-left text-[var(--text-muted)] group-hover:text-[var(--primary-base)]">
-                      <ChevronLeft className="w-4 h-4 inline-block transition-transform group-hover:-translate-x-1" />
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3.5 px-5">
+                        {isCritical ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs font-semibold">
+                            <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
+                            تنبيه حرج
+                          </span>
+                        ) : isModerate ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-semibold">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                            تنبيه صحي
+                          </span>
+                        ) : patient.medical_alerts ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/20 text-xs font-medium">
+                            <AlertTriangle className="w-3 h-3" />
+                            {patient.medical_alerts}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--text-muted)] text-xs">
+                            لا يوجد
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-5 text-left text-[var(--text-muted)] group-hover:text-[var(--primary-base)]">
+                        <ChevronLeft className="w-4 h-4 inline-block transition-transform group-hover:-translate-x-1" />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* 🌟 نافذة إضافة مريض جديد (Modal) فقط */}
+      {/* 🌟 نافذة إضافة مريض موسع (Modal) بالأقسام القابلة للطي */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-lg w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation relative">
-            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-default)] mb-5">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-xl w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-default)] mb-4">
               <h2 className="text-lg font-semibold text-[var(--text-main)] flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-[var(--primary-base)]" />
-                إضافة مريض جديد
+                إضافة ملف مريض جديد
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -416,84 +540,372 @@ export default function Patients() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  اسم المريض *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                  placeholder="محمد أحمد"
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  رقم الهاتف *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.phone_number}
-                  onChange={(e) =>
-                    setFormData({ ...formData, phone_number: e.target.value })
-                  }
-                  placeholder="01012345678"
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3.5">
+
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4 text-right"
+              dir="rtl"
+            >
+              {/* البيانات الأساسية */}
+              <div className="space-y-3.5">
                 <div>
-                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                    النوع
-                  </label>
-                  <select
-                    value={formData.gender}
-                    onChange={(e) =>
-                      setFormData({ ...formData, gender: e.target.value })
-                    }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                  >
-                    <option value="Male">ذكر</option>
-                    <option value="Female">أنثى</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                    تاريخ الميلاد
+                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1">
+                    اسم المريض *
                   </label>
                   <input
-                    type="date"
-                    value={formData.date_of_birth}
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    placeholder="محمد أحمد علي"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)]">
+                      رقم الهاتف *
+                    </label>
+                    {isCheckingPhone && (
+                      <span className="text-[11px] text-teal-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> جاري التحقق
+                        من الرقم...
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={formData.phone_number}
+                    onChange={(e) =>
+                      setFormData({ ...formData, phone_number: e.target.value })
+                    }
+                    placeholder="01012345678"
+                    className={`w-full bg-[var(--bg-app)] border rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none font-mono transition-colors ${
+                      duplicateWarning
+                        ? "border-amber-500/80 focus:border-amber-400"
+                        : "border-[var(--border-default)] focus:border-[var(--border-focus)]"
+                    }`}
+                  />
+                  {duplicateWarning && (
+                    <div className="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{duplicateWarning}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      النوع
+                    </label>
+                    <select
+                      value={formData.gender}
+                      onChange={(e) =>
+                        setFormData({ ...formData, gender: e.target.value })
+                      }
+                      className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                    >
+                      <option value="Male">ذكر</option>
+                      <option value="Female">أنثى</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)]">
+                        تاريخ الميلاد
+                      </label>
+                      {formData.date_of_birth &&
+                        calculateAge(formData.date_of_birth) !== null && (
+                          <span className="text-[11px] font-semibold text-teal-400">
+                            {calculateAge(formData.date_of_birth)} سنة
+                          </span>
+                        )}
+                    </div>
+                    <input
+                      type="date"
+                      value={formData.date_of_birth}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          date_of_birth: e.target.value,
+                        })
+                      }
+                      className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1">
+                    تنبيه طبي مبدئي (حساسية بنسلين / سكر / سيولة)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.medical_alerts}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        date_of_birth: e.target.value,
+                        medical_alerts: e.target.value,
                       })
                     }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                    placeholder="سيتم تفصيله لاحقاً في تبويب التاريخ الطبي"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  التنبيهات الطبية (حساسية بنج / أمراض مزمنة)
-                </label>
-                <textarea
-                  rows="2"
-                  value={formData.medical_alerts}
-                  onChange={(e) =>
-                    setFormData({ ...formData, medical_alerts: e.target.value })
+
+              {/* قسم 1: بيانات ولي الأمر (إلزامي تحت 18 سنة) */}
+              <div className="border border-[var(--border-default)] rounded-[var(--radius-btn)] overflow-hidden bg-[var(--bg-elevated)]/40">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenSections((s) => ({ ...s, guardian: !s.guardian }))
                   }
-                  placeholder="مثال: حساسية من البنسلين، مريض سكر..."
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                ></textarea>
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-elevated)] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>بيانات ولي الأمر</span>
+                    {isMinor && (
+                      <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold">
+                        إلزامي (عمر المريض أقل من 18 سنة)
+                      </span>
+                    )}
+                  </div>
+                  {openSections.guardian ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+
+                {openSections.guardian && (
+                  <div className="p-3.5 border-t border-[var(--border-default)] space-y-3 bg-[var(--bg-app)]/50">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                          اسم ولي الأمر {isMinor && "*"}
+                        </label>
+                        <input
+                          type="text"
+                          required={isMinor}
+                          value={formData.guardian_name}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              guardian_name: e.target.value,
+                            })
+                          }
+                          placeholder="أحمد علي"
+                          className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                          رقم هاتف ولي الأمر {isMinor && "*"}
+                        </label>
+                        <input
+                          type="text"
+                          required={isMinor}
+                          value={formData.guardian_phone}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              guardian_phone: e.target.value,
+                            })
+                          }
+                          placeholder="01xxxxxxxxx"
+                          className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--border-focus)]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                        صلة القرابة
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.guardian_relation}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            guardian_relation: e.target.value,
+                          })
+                        }
+                        placeholder="والد، والدة، أخ أكبر..."
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* قسم 2: جهة الطوارئ */}
+              <div className="border border-[var(--border-default)] rounded-[var(--radius-btn)] overflow-hidden bg-[var(--bg-elevated)]/40">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenSections((s) => ({ ...s, emergency: !s.emergency }))
+                  }
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-elevated)] transition-colors"
+                >
+                  <span>جهة الاتصال في الطوارئ (اختياري)</span>
+                  {openSections.emergency ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+
+                {openSections.emergency && (
+                  <div className="p-3.5 border-t border-[var(--border-default)] grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[var(--bg-app)]/50">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                        اسم جهة الطوارئ
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.emergency_contact_name}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            emergency_contact_name: e.target.value,
+                          })
+                        }
+                        placeholder="محمود (شقيق)"
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                        هاتف الطوارئ
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.emergency_contact_phone}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            emergency_contact_phone: e.target.value,
+                          })
+                        }
+                        placeholder="01xxxxxxxxx"
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--border-focus)]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* قسم 3: تفاصيل العنوان ومصدر المعرفة */}
+              <div className="border border-[var(--border-default)] rounded-[var(--radius-btn)] overflow-hidden bg-[var(--bg-elevated)]/40">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenSections((s) => ({
+                      ...s,
+                      additional: !s.additional,
+                    }))
+                  }
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-elevated)] transition-colors"
+                >
+                  <span>العنوان ومصدر المعرفة (اختياري)</span>
+                  {openSections.additional ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+
+                {openSections.additional && (
+                  <div className="p-3.5 border-t border-[var(--border-default)] space-y-3 bg-[var(--bg-app)]/50">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                          البريد الإلكتروني
+                        </label>
+                        <input
+                          type="email"
+                          value={formData.email}
+                          onChange={(e) =>
+                            setFormData({ ...formData, email: e.target.value })
+                          }
+                          placeholder="patient@gmail.com"
+                          className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                          مصدر المعرفة بالعيادة
+                        </label>
+                        <select
+                          value={formData.referral_source}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              referral_source: e.target.value,
+                            })
+                          }
+                          className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                        >
+                          <option value="">-- اختر المصدر --</option>
+                          <option value="facebook">فيسبوك (Facebook)</option>
+                          <option value="instagram">
+                            إنستجرام (Instagram)
+                          </option>
+                          <option value="recommendation">
+                            ترشيح من صديق / مريض
+                          </option>
+                          <option value="doctor">تحويل من طبيب آخر</option>
+                          <option value="walk_in">
+                            مرور بالشارع (Walk-in)
+                          </option>
+                          <option value="google">بحث جوجل وموقع العيادة</option>
+                          <option value="other">مصدر آخر</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                        تفاصيل مصدر المعرفة (اختياري)
+                      </label>
+
+                      <textarea
+                        rows={2}
+                        value={formData.referral_note}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            referral_note: e.target.value,
+                          })
+                        }
+                        placeholder="مثال: ترشيح من المريض أحمد، أو اسم الطبيب المحوِّل"
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                        العنوان السكني
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.address}
+                        onChange={(e) =>
+                          setFormData({ ...formData, address: e.target.value })
+                        }
+                        placeholder="الجيزة، الدقي، شارع التحرير"
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* أزرار الإجراءات */}
               <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
@@ -520,7 +932,6 @@ export default function Patients() {
       {/* شريط الـ Pagination */}
       {!isLoading && pagination.total > 0 && (
         <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-[#070b14]/50 text-sm text-slate-400">
-          {/* 1. الزراير دلوقتي هتبقى على اليمين */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -556,7 +967,8 @@ export default function Patients() {
           </div>
         </div>
       )}
-      {/* 🌟 نافذة استيراد المرضى مع تقرير الأخطاء */}
+
+      {/* نافذة استيراد المرضى */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-xl w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4 max-h-[90vh] overflow-y-auto">
@@ -584,7 +996,6 @@ export default function Patients() {
                   ويحتوي على الأعمدة المطلوبة.
                 </p>
 
-                {/* زر تحميل القالب */}
                 <div className="bg-[var(--bg-elevated)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-default)] flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
@@ -599,7 +1010,6 @@ export default function Patients() {
                   </button>
                 </div>
 
-                {/* مكان اختيار الملف */}
                 <div>
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                     اختر ملف CSV *
@@ -638,7 +1048,6 @@ export default function Patients() {
                 </div>
               </form>
             ) : (
-              /* عرض تقرير الاستيراد */
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="p-3 bg-[var(--bg-elevated)] rounded-[var(--radius-btn)] border border-[var(--border-default)]">
@@ -666,7 +1075,7 @@ export default function Patients() {
                 {importResult.errors && importResult.errors.length > 0 && (
                   <div>
                     <h4 className="text-xs font-bold text-rose-400 mb-2">
-                      تفاصيل الصفوف التي بها مشاكل ولم يتم استيرادها:
+                      تفاصيل الصفوف التي بها مشاكل:
                     </h4>
                     <div className="max-h-48 overflow-y-auto border border-slate-800 rounded-[var(--radius-btn)] bg-slate-900/60 divide-y divide-slate-800 text-xs">
                       {importResult.errors.map((err, idx) => (

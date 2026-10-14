@@ -89,9 +89,18 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2 text-right">
-              كلمة المرور
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <Link
+                to="/forgot-password"
+                tabIndex={-1}
+                className="text-xs text-teal-400 hover:text-teal-300 transition-colors"
+              >
+                نسيت كلمة المرور؟
+              </Link>
+              <label className="block text-sm font-medium text-slate-300 text-right">
+                كلمة المرور
+              </label>
+            </div>
             <div className="relative" dir="ltr">
               <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5 transition-colors group-focus-within:text-teal-400" />
               <input

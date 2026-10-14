@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../api/axios";
@@ -6,17 +6,23 @@ import DentalChart from "../components/DentalChart";
 import TreatmentPlans from "../components/TreatmentPlans";
 import MedicalImages from "../components/MedicalImages";
 import PatientPrescriptions from "../components/PatientPrescriptions";
+import MedicalAlertBanner from "../components/MedicalAlertBanner";
 import {
   ArrowRight,
   Phone,
   Calendar,
   AlertTriangle,
+  AlertOctagon,
   Loader2,
   Check,
   Edit,
   Archive,
   RotateCcw,
   X,
+  Plus,
+  Trash2,
+  HeartPulse,
+  Save,
 } from "lucide-react";
 
 export default function PatientDetails() {
@@ -24,7 +30,7 @@ export default function PatientDetails() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState("overview"); // overview | dental_chart | treatment_plans | medical_images | appointments | invoices | lab_orders
+  const [activeTab, setActiveTab] = useState("overview");
   const [selectedToothForImages, setSelectedToothForImages] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -36,8 +42,31 @@ export default function PatientDetails() {
     gender: "Male",
     date_of_birth: "",
     medical_alerts: "",
+    address: "",
+    email: "",
+    emergency_contact_name: "",
+    emergency_contact_phone: "",
+    guardian_name: "",
+    guardian_phone: "",
+    guardian_relation: "",
+    referral_source: "",
+    referral_note: "",
   });
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
+  // حالة استبيان التاريخ الطبي
+  const [historyAnswers, setHistoryAnswers] = useState(null);
+  const [historyNotes, setHistoryNotes] = useState("");
+  const [isSavingHistory, setIsSavingHistory] = useState(false);
+
+  // حالة إضافة حساسية جديدة
+  const [isAddAllergyOpen, setIsAddAllergyOpen] = useState(false);
+  const [newAllergy, setNewAllergy] = useState({
+    category: "medication",
+    substance: "",
+    reaction: "",
+    severity: "severe",
+  });
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -49,9 +78,8 @@ export default function PatientDetails() {
     setActiveTab("medical_images");
   };
 
-  // 1. جلب بيانات المريض من الـ ID
   const {
-    data: patient,
+    data: patientData,
     isLoading: isLoadingPatient,
     isError,
   } = useQuery({
@@ -61,6 +89,77 @@ export default function PatientDetails() {
       return res.data.patient || res.data;
     },
   });
+
+  const patient = patientData || {};
+  const alertSummary = patient.alert_summary || {
+    level: "none",
+    tags: [],
+  };
+  const allergies = patient.allergies || [];
+
+  // تحميل التاريخ الطبي الخاص بالمريض الحالي فقط
+  useEffect(() => {
+    if (!patientData || patientData.id !== id) return;
+
+    setHistoryAnswers(patientData.medical_history?.answers || {});
+    setHistoryNotes(patientData.medical_history?.notes || "");
+  }, [id, patientData?.id]);
+
+  // حفظ التاريخ الطبي
+  const handleSaveMedicalHistory = async () => {
+    try {
+      setIsSavingHistory(true);
+      const res = await api.put(`/patients/${id}/medical-history`, {
+        answers: historyAnswers || {},
+        notes: historyNotes,
+      });
+      queryClient.invalidateQueries({ queryKey: ["patient", id] });
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      showToast(res.data.message || "تم حفظ التاريخ الطبي بنجاح", "success");
+    } catch (err) {
+      showToast(err.response?.data?.error || "فشل حفظ التاريخ الطبي", "error");
+    } finally {
+      setIsSavingHistory(false);
+    }
+  };
+
+  // إضافة حساسية جديدة
+  const handleAddAllergySubmit = async (e) => {
+    e.preventDefault();
+    if (!newAllergy.substance.trim()) {
+      showToast("يرجى كتابة اسم المادة المسببة للحساسية", "error");
+      return;
+    }
+    try {
+      await api.post(`/patients/${id}/allergies`, newAllergy);
+
+      queryClient.invalidateQueries({ queryKey: ["patient", id] });
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      setIsAddAllergyOpen(false);
+      setNewAllergy({
+        category: "medication",
+        substance: "",
+        reaction: "",
+        severity: "severe",
+      });
+      showToast("تمت إضافة الحساسية بنجاح", "success");
+    } catch (err) {
+      showToast(err.response?.data?.error || "فشل تسجيل الحساسية", "error");
+    }
+  };
+
+  // حذف حساسية
+  const handleDeleteAllergy = async (allergyId) => {
+    try {
+      await api.delete(`/patients/${id}/allergies/${allergyId}`);
+
+      queryClient.invalidateQueries({ queryKey: ["patient", id] });
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      showToast("تم حذف الحساسية بنجاح", "success");
+    } catch (err) {
+      showToast(err.response?.data?.error || "فشل حذف الحساسية", "error");
+    }
+  };
 
   // 2. جلب مواعيد المريض
   const { data: appointments = [], isLoading: isLoadingAppointments } =
@@ -80,9 +179,7 @@ export default function PatientDetails() {
   const { data: invoices = [], isLoading: isLoadingInvoices } = useQuery({
     queryKey: ["patient-invoices", id],
     queryFn: async () => {
-      const res = await api.get("/invoices", {
-        params: { patient_id: id },
-      });
+      const res = await api.get("/invoices", { params: { patient_id: id } });
       return Array.isArray(res.data) ? res.data : res.data.invoices || [];
     },
     enabled: activeTab === "invoices",
@@ -93,16 +190,13 @@ export default function PatientDetails() {
   const { data: labOrders = [], isLoading: isLoadingLabOrders } = useQuery({
     queryKey: ["patient-lab-orders", id],
     queryFn: async () => {
-      const res = await api.get("/lab-orders", {
-        params: { patient_id: id },
-      });
+      const res = await api.get("/lab-orders", { params: { patient_id: id } });
       return res.data.lab_orders || [];
     },
     enabled: activeTab === "lab_orders",
     staleTime: 0,
   });
 
-  // ترجمة الشارات
   const STATUS_MAP = {
     paid: {
       label: "مدفوعة",
@@ -198,13 +292,12 @@ export default function PatientDetails() {
     );
   };
 
-  // تعديل بيانات المريض
   const updatePatientMutation = useMutation({
     mutationFn: async (updatedData) => {
       const res = await api.put(`/patients/${id}`, updatedData);
       return res.data;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["patient", id] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
       setIsEditModalOpen(false);
@@ -218,7 +311,6 @@ export default function PatientDetails() {
     },
   });
 
-  // أرشفة المريض
   const archivePatientMutation = useMutation({
     mutationFn: async () => {
       const res = await api.delete(`/patients/${id}`);
@@ -234,7 +326,6 @@ export default function PatientDetails() {
     },
   });
 
-  // استعادة المريض
   const restorePatientMutation = useMutation({
     mutationFn: async () => {
       const res = await api.patch(`/patients/${id}/restore`);
@@ -253,8 +344,6 @@ export default function PatientDetails() {
     },
   });
 
-  const PHONE_REGEX = /^\+?[0-9]{10,15}$/;
-
   const handleEditOpen = () => {
     setEditFormData({
       name: patient?.name || "",
@@ -264,6 +353,15 @@ export default function PatientDetails() {
         ? patient.date_of_birth.split("T")[0]
         : "",
       medical_alerts: patient?.medical_alerts || "",
+      address: patient?.address || "",
+      email: patient?.email || "",
+      emergency_contact_name: patient?.emergency_contact_name || "",
+      emergency_contact_phone: patient?.emergency_contact_phone || "",
+      guardian_name: patient?.guardian_name || "",
+      guardian_phone: patient?.guardian_phone || "",
+      guardian_relation: patient?.guardian_relation || "",
+      referral_source: patient?.referral_source || "",
+      referral_note: patient?.referral_note || "",
     });
     setIsEditModalOpen(true);
   };
@@ -299,7 +397,7 @@ export default function PatientDetails() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* 🌟 Toast Notification */}
+      {/* Toast Notification */}
       {toast && (
         <div
           className={`fixed bottom-6 left-6 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-btn)] shadow-elevation border text-sm font-medium transition-all ${
@@ -317,7 +415,21 @@ export default function PatientDetails() {
         </div>
       )}
 
-      {/* 🌟 شريط العودة + كارت معلومات المريض الأساسي (Header Bar) */}
+      {/* التنبيهات الطبية المنظمة */}
+      <MedicalAlertBanner alertSummary={alertSummary} />
+
+      {/* الاحتفاظ بالتنبيهات النصية القديمة للمرضى السابقين */}
+      {patient.medical_alerts?.trim() && (
+        <div className="flex items-start gap-2 rounded-[var(--radius-card)] border border-[var(--warning-text)]/20 bg-[var(--warning-bg)]/40 p-3 text-sm text-[var(--warning-text)]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <span className="font-bold">تنبيه طبي مسجل سابقًا: </span>
+            <span>{patient.medical_alerts}</span>
+          </div>
+        </div>
+      )}
+
+      {/* كارت معلومات المريض الأساسي */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-4">
@@ -339,6 +451,12 @@ export default function PatientDetails() {
                 <span className="text-xs px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-default)]">
                   {patient.gender === "Female" ? "أنثى" : "ذكر"}
                 </span>
+                {patient.guardian_name && (
+                  <span className="text-xs px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-teal-500/15 text-teal-300 border border-teal-500/30">
+                    ولي الأمر: {patient.guardian_name} ({patient.guardian_phone}
+                    )
+                  </span>
+                )}
                 {patient.is_active === false && (
                   <span className="text-xs px-2.5 py-0.5 rounded-[var(--radius-pill)] bg-[var(--warning-bg)] text-[var(--warning-text)] border border-[var(--warning-text)]/25">
                     مؤرشف
@@ -360,11 +478,16 @@ export default function PatientDetails() {
                       } سنة)`
                     : "تاريخ الميلاد غير محدد"}
                 </span>
+                {patient.address && (
+                  <>
+                    <span>•</span>
+                    <span>{patient.address}</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
-          {/* أزرار الإجراءات على المريض */}
           <div className="flex items-center gap-2.5 self-end lg:self-center">
             {patient.is_active === false ? (
               <button
@@ -393,22 +516,14 @@ export default function PatientDetails() {
             </button>
           </div>
         </div>
-
-        {/* تنبيه طبي سريع لو موجود */}
-        {patient.medical_alerts && (
-          <div className="mt-4 pt-3.5 border-t border-[var(--border-default)] flex items-center gap-2 text-xs text-[var(--warning-text)] bg-[var(--warning-bg)]/40 p-2.5 rounded-[var(--radius-btn)] border border-[var(--warning-text)]/20">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="font-semibold">تنبيه طبي:</span>
-            <span>{patient.medical_alerts}</span>
-          </div>
-        )}
       </div>
 
-      {/* 🌟 شريط التبويبات الفخم ملء الشاشة */}
+      {/* شريط التبويبات الفخم ملء الشاشة */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] overflow-hidden shadow-xl">
         <div className="flex border-b border-[var(--border-default)] px-4 sm:px-6 gap-2 sm:gap-6 text-xs sm:text-sm font-medium bg-[var(--bg-app)] overflow-x-auto whitespace-nowrap">
           {[
             { id: "overview", label: "نظرة عامة" },
+            { id: "medical_history", label: "التاريخ الطبي والحساسية ⚠️" },
             { id: "dental_chart", label: "مخطط الأسنان 🦷" },
             { id: "treatment_plans", label: "خطط العلاج 📋" },
             { id: "medical_images", label: "الصور والأشعة 📸" },
@@ -431,7 +546,7 @@ export default function PatientDetails() {
           ))}
         </div>
 
-        {/* 🌟 محتوى التبويبات بمساحة مريحة جداً */}
+        {/* محتوى التبويبات */}
         <div className="p-4 sm:p-6 min-h-[500px]">
           {/* تبويب: نظرة عامة */}
           {activeTab === "overview" && (
@@ -449,37 +564,287 @@ export default function PatientDetails() {
                 </div>
                 <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] p-4 rounded-[var(--radius-card)]">
                   <span className="text-xs text-[var(--text-muted)] block mb-1">
-                    النوع
+                    جهة الطوارئ
                   </span>
                   <span className="text-sm font-semibold text-[var(--text-main)]">
-                    {patient.gender === "Female" ? "أنثى" : "ذكر"}
+                    {patient.emergency_contact_name
+                      ? `${patient.emergency_contact_name} (${patient.emergency_contact_phone || "-"})`
+                      : "غير مسجل"}
                   </span>
                 </div>
                 <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] p-4 rounded-[var(--radius-card)]">
                   <span className="text-xs text-[var(--text-muted)] block mb-1">
-                    تاريخ فتح الملف
+                    مصدر المعرفة
                   </span>
-                  <span className="text-sm font-semibold text-[var(--text-main)] font-mono">
-                    {patient.created_at
-                      ? new Date(patient.created_at).toLocaleDateString("ar-EG")
-                      : "-"}
+                  <span className="text-sm font-semibold text-[var(--text-main)]">
+                    {patient.referral_source || "غير محدد"}
                   </span>
                 </div>
               </div>
 
-              <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] p-5 rounded-[var(--radius-card)] space-y-2">
-                <h3 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-[var(--warning-text)]" />
-                  التنبيهات الطبية والحساسية
-                </h3>
-                {patient.medical_alerts ? (
-                  <p className="text-sm text-[var(--warning-text)] font-medium">
-                    {patient.medical_alerts}
-                  </p>
+              {/* ملخص التنبيهات في النظرة العامة */}
+              <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] p-5 rounded-[var(--radius-card)] space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[var(--text-main)] flex items-center gap-2">
+                    <HeartPulse className="w-4 h-4 text-teal-400" />
+                    الملف الطبي السريع
+                  </h3>
+                  <button
+                    onClick={() => setActiveTab("medical_history")}
+                    className="text-xs text-teal-400 hover:underline font-bold"
+                  >
+                    تعديل الاستبيان والحساسية ←
+                  </button>
+                </div>
+                {alertSummary.level !== "none" ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {alertSummary.tags.map((t, i) => (
+                      <span
+                        key={i}
+                        className={`text-xs px-2.5 py-1 rounded-md font-semibold border ${
+                          alertSummary.level === "critical"
+                            ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
+                            : "bg-amber-500/15 border-amber-500/30 text-amber-300"
+                        }`}
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
                 ) : (
                   <p className="text-xs text-[var(--text-muted)]">
-                    لا توجد تنبيهات طبية أو حساسية مسجلة لهذا المريض.
+                    لم يتم تسجيل أمراض مزمنة أو حساسية حتى الآن.
                   </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 تبويب جديد: التاريخ الطبي والحساسية (Medical History & Allergies) */}
+          {activeTab === "medical_history" && (
+            <div className="space-y-8 max-w-4xl" dir="rtl">
+              {/* قسم 1: استبيان الأمراض المزمنة نعم/لا */}
+              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] p-5 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[var(--border-default)] gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-[var(--text-main)] flex items-center gap-2">
+                      <HeartPulse className="w-5 h-5 text-teal-400" />
+                      استبيان التاريخ الطبي والأمراض المزمنة
+                    </h3>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                      يُحدد مستوى الخطر تلقائياً ويطلق تنبيهاً حاسماً عند وجود
+                      مميعات دم، أمراض قلب، أو حمل.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveMedicalHistory}
+                    disabled={isSavingHistory}
+                    className="self-start sm:self-auto flex items-center gap-2 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-bold transition-colors disabled:opacity-50"
+                  >
+                    {isSavingHistory ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span>حفظ الاستبيان</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-sm">
+                  {[
+                    {
+                      key: "blood_thinners",
+                      label:
+                        "مميعات وأدوية سيولة الدم (أسبرين، بلافيكس، ماريفان)",
+                      critical: true,
+                    },
+                    {
+                      key: "heart_disease",
+                      label: "أمراض القلب أو الصمامات أو جلطات سابقة",
+                      critical: true,
+                    },
+                    {
+                      key: "bleeding_disorder",
+                      label: "نزيف مفرط أو اضطرابات تخثر الدم",
+                      critical: true,
+                    },
+                    {
+                      key: "pregnancy",
+                      label: "الحمل والرضاعة (خاص بالإناث)",
+                      critical: true,
+                    },
+                    {
+                      key: "diabetes",
+                      label: "مرض السكري (Diabetes)",
+                      critical: false,
+                    },
+                    {
+                      key: "hypertension",
+                      label: "ارتفاع ضغط الدم (Hypertension)",
+                      critical: false,
+                    },
+                    {
+                      key: "asthma",
+                      label: "الربو أو الحساسية الصدرية (Asthma)",
+                      critical: false,
+                    },
+                    {
+                      key: "hepatitis",
+                      label: "التهاب الكبد أو مشاكل كبدية (Hepatitis)",
+                      critical: false,
+                    },
+                    {
+                      key: "kidney_disease",
+                      label: "أمراض الكلى أو الغسيل الكلوي",
+                      critical: false,
+                    },
+                  ].map((item) => {
+                    const isChecked = Boolean(historyAnswers?.[item.key]);
+                    return (
+                      <label
+                        key={item.key}
+                        className={`flex items-start gap-3 p-3 rounded-[var(--radius-btn)] border cursor-pointer transition-all ${
+                          isChecked
+                            ? item.critical
+                              ? "bg-rose-500/15 border-rose-500/40 text-rose-200"
+                              : "bg-amber-500/15 border-amber-500/40 text-amber-200"
+                            : "bg-[var(--bg-elevated)]/50 border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) =>
+                            setHistoryAnswers((prev) => ({
+                              ...prev,
+                              [item.key]: e.target.checked,
+                            }))
+                          }
+                          className="mt-1 rounded accent-teal-500 w-4 h-4 cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <span className="font-semibold text-xs leading-relaxed block">
+                            {item.label}
+                          </span>
+                          {item.critical && (
+                            <span className="text-[10px] text-rose-400 font-bold block mt-0.5">
+                              ⚠️ حالة حرجة لتخدير وجراحة الأسنان
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
+                    ملاحظات طبية إضافية للطبيب المعالج
+                  </label>
+                  <textarea
+                    rows="2"
+                    value={historyNotes}
+                    onChange={(e) => setHistoryNotes(e.target.value)}
+                    placeholder="أي أدوية منتظمة أخرى أو توصيات من طبيب الباطنة..."
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                  ></textarea>
+                </div>
+              </div>
+
+              {/* قسم 2: الحساسيات المسجلة (Allergies) */}
+              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-[var(--radius-card)] p-5 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
+                  <div>
+                    <h3 className="text-base font-bold text-[var(--text-main)] flex items-center gap-2">
+                      <AlertOctagon className="w-5 h-5 text-rose-400" />
+                      سجل الحساسية الدوائية والمواد (Allergies)
+                    </h3>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                      تظهر في شريط التحذير وفي فحص الروشتات الطبية تلقائياً.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsAddAllergyOpen(true)}
+                    className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-[var(--radius-btn)] text-xs font-bold transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>إضافة حساسية</span>
+                  </button>
+                </div>
+
+                {allergies.length === 0 ? (
+                  <p className="text-xs text-[var(--text-muted)] py-4 text-center">
+                    لا توجد حساسيات مسجلة لهذا المريض.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto border border-[var(--border-default)] rounded-[var(--radius-btn)]">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-[#060a13] text-[var(--text-table-headers)] border-b border-[var(--border-default)]">
+                        <tr>
+                          <th className="py-2.5 px-4 font-semibold">
+                            المادة / الدواء
+                          </th>
+                          <th className="py-2.5 px-4 font-semibold">الفئة</th>
+                          <th className="py-2.5 px-4 font-semibold">
+                            رد الفعل (Reaction)
+                          </th>
+                          <th className="py-2.5 px-4 font-semibold">الشدة</th>
+                          <th className="py-2.5 px-4 font-semibold text-left">
+                            إجراء
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
+                        {allergies.map((alg) => (
+                          <tr
+                            key={alg.id}
+                            className="hover:bg-[var(--bg-elevated)]/40"
+                          >
+                            <td className="py-2.5 px-4 font-bold text-rose-300">
+                              {alg.substance}
+                            </td>
+                            <td className="py-2.5 px-4 text-[var(--text-muted)]">
+                              {alg.category === "medication"
+                                ? "دواء"
+                                : alg.category === "latex"
+                                  ? "لاتكس"
+                                  : alg.category === "food"
+                                    ? "طعام"
+                                    : "أخرى"}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              {alg.reaction || "-"}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                  alg.severity === "severe"
+                                    ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                    : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                }`}
+                              >
+                                {alg.severity === "severe"
+                                  ? "شديدة"
+                                  : alg.severity === "mild"
+                                    ? "خفيفة"
+                                    : "متوسطة"}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-left">
+                              <button
+                                onClick={() => handleDeleteAllergy(alg.id)}
+                                title="حذف"
+                                className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
@@ -513,6 +878,7 @@ export default function PatientDetails() {
             />
           )}
 
+          {/* تبويب: الروشتات */}
           {activeTab === "prescriptions" && (
             <PatientPrescriptions patientId={id} patient={patient} />
           )}
@@ -542,7 +908,7 @@ export default function PatientDetails() {
                     <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-secondary)]">
                       {appointments.map((app) => (
                         <tr
-                          key={app.appointment_id}
+                          key={app.appointment_id || app.id}
                           className="hover:bg-[var(--bg-elevated)]/40"
                         >
                           <td className="py-3 px-4 font-medium text-[var(--text-main)] font-mono">
@@ -595,10 +961,7 @@ export default function PatientDetails() {
                           key={inv.id}
                           className="hover:bg-[var(--bg-elevated)]/40"
                         >
-                          <td
-                            className="py-3 px-4 font-mono text-[var(--text-main)]"
-                            title={inv.id}
-                          >
+                          <td className="py-3 px-4 font-mono text-[var(--text-main)]">
                             #{String(inv.id).slice(0, 8)}
                           </td>
                           <td className="py-3 px-4 font-medium text-[var(--text-main)]">
@@ -640,9 +1003,6 @@ export default function PatientDetails() {
                       <tr>
                         <th className="py-3 px-4 font-medium">رقم الحالة</th>
                         <th className="py-3 px-4 font-medium">اسم المعمل</th>
-                        <th className="py-3 px-4 font-medium">
-                          برنامج التصميم
-                        </th>
                         <th className="py-3 px-4 font-medium">الطبيب</th>
                         <th className="py-3 px-4 font-medium">الحالة</th>
                       </tr>
@@ -654,12 +1014,9 @@ export default function PatientDetails() {
                           className="hover:bg-[var(--bg-elevated)]/40"
                         >
                           <td className="py-3 px-4 font-mono text-[var(--text-main)]">
-                            {order.case_number || `#${order.id}`}
+                            {order.case_number || `#${order.id.slice(0, 8)}`}
                           </td>
                           <td className="py-3 px-4">{order.lab_name}</td>
-                          <td className="py-3 px-4 text-[var(--primary-base)] font-mono">
-                            {order.design_software || "-"}
-                          </td>
                           <td className="py-3 px-4">د. {order.doctor_name}</td>
                           <td className="py-3 px-4">
                             {renderStatusBadge(order.status)}
@@ -675,11 +1032,118 @@ export default function PatientDetails() {
         </div>
       </div>
 
-      {/* 🌟 نافذة تعديل بيانات المريض (Edit Modal) */}
+      {/* مودال إضافة حساسية */}
+      {isAddAllergyOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div
+            className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 shadow-2xl space-y-4"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-default)]">
+              <h3 className="text-base font-bold text-[var(--text-main)] flex items-center gap-2">
+                <AlertOctagon className="w-5 h-5 text-rose-400" />
+                تسجيل حساسية جديدة
+              </h3>
+              <button
+                onClick={() => setIsAddAllergyOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddAllergySubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                  المادة المسببة للحساسية (مثل: بنسلين، سلفا، تخدير) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAllergy.substance}
+                  onChange={(e) =>
+                    setNewAllergy({ ...newAllergy, substance: e.target.value })
+                  }
+                  placeholder="بنسلين (Penicillin)"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                    الفئة
+                  </label>
+                  <select
+                    value={newAllergy.category}
+                    onChange={(e) =>
+                      setNewAllergy({ ...newAllergy, category: e.target.value })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                  >
+                    <option value="medication">دواء / علاج</option>
+                    <option value="latex">لاتكس (قفازات)</option>
+                    <option value="food">طعام</option>
+                    <option value="other">أخرى</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                    درجة الشدة
+                  </label>
+                  <select
+                    value={newAllergy.severity}
+                    onChange={(e) =>
+                      setNewAllergy({ ...newAllergy, severity: e.target.value })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                  >
+                    <option value="severe">شديدة (حرجة)</option>
+                    <option value="moderate">متوسطة</option>
+                    <option value="mild">خفيفة</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                  رد الفعل والتحسس (Reaction)
+                </label>
+                <input
+                  type="text"
+                  value={newAllergy.reaction}
+                  onChange={(e) =>
+                    setNewAllergy({ ...newAllergy, reaction: e.target.value })
+                  }
+                  placeholder="طفح جلدي، ضيق تنفس، تورم بالوجه..."
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                />
+              </div>
+              <div className="flex gap-2 pt-2 border-t border-[var(--border-default)]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAllergyOpen(false)}
+                  className="flex-1 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] rounded-[var(--radius-btn)] text-xs font-semibold"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-[var(--radius-btn)] text-xs font-semibold"
+                >
+                  تسجيل الحساسية
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* نافذة تعديل بيانات المريض الموسع */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-lg w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation relative">
-            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-default)] mb-5">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div
+            className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-xl w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation relative max-h-[90vh] overflow-y-auto"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-default)] mb-4">
               <h2 className="text-lg font-semibold text-[var(--text-main)]">
                 تعديل بيانات المريض
               </h2>
@@ -693,67 +1157,47 @@ export default function PatientDetails() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-
-                // التحقق من رقم الهاتف
-                if (!PHONE_REGEX.test(editFormData.phone_number.trim())) {
-                  showToast(
-                    "رقم الهاتف غير صالح (أرقام فقط من 10 إلى 15 رقم)",
-                    "error",
-                  );
-                  return;
-                }
-
-                // التحقق من تاريخ الميلاد
-                if (editFormData.date_of_birth) {
-                  const selectedDate = new Date(editFormData.date_of_birth);
-
-                  if (selectedDate > new Date()) {
-                    showToast(
-                      "تاريخ الميلاد لا يمكن أن يكون في المستقبل",
-                      "error",
-                    );
-                    return;
-                  }
-                }
-
                 updatePatientMutation.mutate(editFormData);
               }}
               className="space-y-4"
             >
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  اسم المريض *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editFormData.name}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, name: e.target.value })
-                  }
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  رقم الهاتف *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editFormData.phone_number}
-                  onChange={(e) =>
-                    setEditFormData({
-                      ...editFormData,
-                      phone_number: e.target.value,
-                    })
-                  }
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    اسم المريض *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.name}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, name: e.target.value })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    رقم الهاتف *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.phone_number}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        phone_number: e.target.value,
+                      })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--border-focus)]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     النوع
                   </label>
                   <select
@@ -764,14 +1208,14 @@ export default function PatientDetails() {
                         gender: e.target.value,
                       })
                     }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-2 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)]"
                   >
                     <option value="Male">ذكر</option>
                     <option value="Female">أنثى</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                     تاريخ الميلاد
                   </label>
                   <input
@@ -783,38 +1227,111 @@ export default function PatientDetails() {
                         date_of_birth: e.target.value,
                       })
                     }
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] font-mono transition-colors"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--border-focus)]"
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[var(--bg-elevated)]/40 rounded-[var(--radius-btn)] border border-[var(--border-default)]">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    اسم ولي الأمر
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.guardian_name}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        guardian_name: e.target.value,
+                      })
+                    }
+                    placeholder="إن وجد"
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    هاتف ولي الأمر
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.guardian_phone}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        guardian_phone: e.target.value,
+                      })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    جهة الطوارئ
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.emergency_contact_name}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        emergency_contact_name: e.target.value,
+                      })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    هاتف الطوارئ
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.emergency_contact_phone}
+                    onChange={(e) =>
+                      setEditFormData({
+                        ...editFormData,
+                        emergency_contact_phone: e.target.value,
+                      })
+                    }
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)] font-mono"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs sm:text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-                  التنبيهات الطبية (حساسية / أمراض مزمنة)
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                  العنوان
                 </label>
-                <textarea
-                  rows="2"
-                  value={editFormData.medical_alerts}
+                <input
+                  type="text"
+                  value={editFormData.address}
                   onChange={(e) =>
                     setEditFormData({
                       ...editFormData,
-                      medical_alerts: e.target.value,
+                      address: e.target.value,
                     })
                   }
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3.5 py-2 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
-                ></textarea>
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-[var(--radius-btn)] px-3 py-1.5 text-xs text-[var(--text-main)]"
+                />
               </div>
+
               <div className="flex gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="flex-1 px-4 py-2 border border-[var(--border-default)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs sm:text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] rounded-[var(--radius-btn)] text-xs font-medium"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={updatePatientMutation.isPending}
-                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs sm:text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 bg-[var(--primary-base)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium disabled:opacity-50"
                 >
                   {updatePatientMutation.isPending
                     ? "جاري التحديث..."
@@ -826,7 +1343,7 @@ export default function PatientDetails() {
         </div>
       )}
 
-      {/* 🌟 نافذة تأكيد الأرشفة */}
+      {/* نافذة تأكيد الأرشفة */}
       {isArchiveConfirmOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] max-w-md w-full rounded-[var(--radius-card)] p-5 sm:p-6 shadow-elevation space-y-4">
@@ -854,7 +1371,7 @@ export default function PatientDetails() {
               <button
                 type="button"
                 onClick={() => setIsArchiveConfirmOpen(false)}
-                className="flex-1 px-4 py-2 border border-[var(--border-default)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-main)] rounded-[var(--radius-btn)] text-xs sm:text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 border border-[var(--border-default)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] rounded-[var(--radius-btn)] text-xs font-medium"
               >
                 إلغاء
               </button>
@@ -862,7 +1379,7 @@ export default function PatientDetails() {
                 type="button"
                 disabled={archivePatientMutation.isPending}
                 onClick={() => archivePatientMutation.mutate()}
-                className="flex-1 bg-[var(--danger-text)] hover:opacity-90 text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs sm:text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex-1 bg-[var(--danger-text)] hover:opacity-90 text-white px-4 py-2 rounded-[var(--radius-btn)] text-xs font-medium disabled:opacity-50"
               >
                 {archivePatientMutation.isPending
                   ? "جاري الأرشفة..."
