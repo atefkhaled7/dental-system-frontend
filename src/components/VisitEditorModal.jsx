@@ -250,6 +250,32 @@ export default function VisitEditorModal({
         return false;
       }
     }
+
+    // التأكد من أن كل صف إجراء مكتمل قبل الإرسال
+    for (const p of procedures) {
+      const hasCost =
+        p.cost !== undefined &&
+        p.cost !== null &&
+        String(p.cost).trim() !== "" &&
+        (!Number.isFinite(Number(p.cost)) || Number(p.cost) !== 0);
+
+      const hasDetails = Boolean(
+        String(p.tooth_number ?? "").trim() ||
+        String(p.surface ?? p.surfaces ?? "").trim() ||
+        String(p.notes ?? "").trim() ||
+        hasCost,
+      );
+
+      const hasProcedure = Boolean(
+        String(p.procedure_name ?? "").trim() ||
+        String(p.procedure_code_id ?? "").trim(),
+      );
+
+      if (hasDetails && !hasProcedure) {
+        notify("يرجى تحديد اسم الإجراء أو اختياره من الكتالوج لكل صف", "error");
+        return false;
+      }
+    }
     return true;
   };
 
@@ -972,7 +998,10 @@ export default function VisitEditorModal({
                 <>
                   <button
                     type="button"
-                    disabled={saveVisitMutation.isPending}
+                    disabled={
+                      saveVisitMutation.isPending ||
+                      finalizeVisitMutation.isPending
+                    }
                     onClick={() => {
                       if (!validateProceduresBeforeSave()) return;
                       saveVisitMutation.mutate({
@@ -1003,7 +1032,10 @@ export default function VisitEditorModal({
                   {visit.status !== "final" && (
                     <button
                       type="button"
-                      disabled={finalizeVisitMutation.isPending}
+                      disabled={
+                        saveVisitMutation.isPending ||
+                        finalizeVisitMutation.isPending
+                      }
                       onClick={() => {
                         if (!validateProceduresBeforeSave()) return;
                         finalizeVisitMutation.mutate();

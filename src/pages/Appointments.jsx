@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import BookAppointmentModal from "../components/BookAppointmentModal";
 import BookingRequestsView from "../components/BookingRequestsView";
+import VisitEditorModal from "../components/VisitEditorModal";
 import MedicalAlertBanner from "../components/MedicalAlertBanner";
 import {
   useQuery,
@@ -134,7 +135,7 @@ export default function Appointments() {
 
   // الدرج الجانبي للموعد (Slide-over Drawer)
   const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
-
+  const [visitModalApptId, setVisitModalApptId] = useState(null);
   // مودال إعدادات التشغيل والكراسي وساعات العمل والعطلات
   const [scheduleSettingsOpen, setScheduleSettingsOpen] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState(30);
@@ -183,7 +184,6 @@ export default function Appointments() {
     appointmentId: null,
     patientName: "",
   });
-
 
   // 1. جلب عدد طلبات الحجز الأونلاين المعلقة (تحديث كل 30 ثانية)
   const { data: pendingRequestsData } = useQuery({
@@ -352,7 +352,6 @@ export default function Appointments() {
       );
     }
   };
-
 
   // تحديث حالة الموعد
   const updateStatusMutation = useMutation({
@@ -1764,7 +1763,19 @@ export default function Appointments() {
                     </div>
                   )}
                 </div>
-
+                {/* 🌟 زر فتح سجل الزيارة السريري والروشتة السريعة */}
+                {["ClinicAdmin", "Doctor"].includes(user?.role) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisitModalApptId(drawerAppointmentData.id)
+                    }
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Stethoscope className="w-4 h-4" />
+                    <span>فتح سجل الزيارة السريري والروشتة 🩺</span>
+                  </button>
+                )}
                 {/* أزرار تغيير الحالة السريعة للاستقبال والطبيب */}
                 <div className="space-y-2">
                   <span className="text-xs font-bold text-slate-400 block">
@@ -2536,7 +2547,13 @@ export default function Appointments() {
           <span>{toast.message}</span>
         </div>
       )}
-
+      {/* محرر الزيارة السريري والروشتة السريعة */}
+      <VisitEditorModal
+        isOpen={!!visitModalApptId}
+        appointmentId={visitModalApptId}
+        onClose={() => setVisitModalApptId(null)}
+        showToast={showToast}
+      />
       {/* المودال الموحد الذكي لحجز المواعيد (يدعم التعبئة المسبقة للطبيب والوقت) */}
       <BookAppointmentModal
         isOpen={bookModalState.isOpen}

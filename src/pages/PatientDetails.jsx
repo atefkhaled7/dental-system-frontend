@@ -7,6 +7,7 @@ import TreatmentPlans from "../components/TreatmentPlans";
 import MedicalImages from "../components/MedicalImages";
 import PatientPrescriptions from "../components/PatientPrescriptions";
 import MedicalAlertBanner from "../components/MedicalAlertBanner";
+import VisitEditorModal from "../components/VisitEditorModal";
 import {
   ArrowRight,
   Phone,
@@ -31,6 +32,7 @@ export default function PatientDetails() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState("overview");
+  const [selectedVisitId, setSelectedVisitId] = useState(null);
   const [selectedToothForImages, setSelectedToothForImages] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -175,6 +177,16 @@ export default function PatientDetails() {
       staleTime: 0,
     });
 
+  // جلب سجل الزيارات السريرية للمريض
+  const { data: patientVisits = [], isLoading: isLoadingVisits } = useQuery({
+    queryKey: ["patient-visits", id],
+    queryFn: async () => {
+      const res = await api.get(`/patients/${id}/visits`);
+      return res.data?.visits || [];
+    },
+    enabled: activeTab === "visits",
+    staleTime: 0,
+  });
   // 3. جلب فواتير المريض
   const { data: invoices = [], isLoading: isLoadingInvoices } = useQuery({
     queryKey: ["patient-invoices", id],
@@ -523,6 +535,7 @@ export default function PatientDetails() {
         <div className="flex border-b border-[var(--border-default)] px-4 sm:px-6 gap-2 sm:gap-6 text-xs sm:text-sm font-medium bg-[var(--bg-app)] overflow-x-auto whitespace-nowrap">
           {[
             { id: "overview", label: "نظرة عامة" },
+            { id: "visits", label: "سجل الزيارات السريري 🩺" },
             { id: "medical_history", label: "التاريخ الطبي والحساسية ⚠️" },
             { id: "dental_chart", label: "مخطط الأسنان 🦷" },
             { id: "treatment_plans", label: "خطط العلاج 📋" },
@@ -1029,6 +1042,82 @@ export default function PatientDetails() {
               )}
             </div>
           )}
+          {/* تبويب: سجل الزيارات السريري */}
+          {activeTab === "visits" && (
+            <div className="space-y-4">
+              {isLoadingVisits ? (
+                <div className="py-12 flex justify-center">
+                  <Loader2 className="w-7 h-7 animate-spin text-teal-400" />
+                </div>
+              ) : patientVisits.length === 0 ? (
+                <div className="text-center py-14 text-slate-400 text-sm">
+                  لا توجد زيارات سريرية مسجلة لهذا المريض بعد. يتم فتح الزيارة
+                  من موعد المريض في التقويم.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {patientVisits.map((v) => (
+                    <div
+                      key={v.id}
+                      onClick={() => setSelectedVisitId(v.id)}
+                      className="p-4 rounded-2xl bg-[#0d1527]/70 hover:bg-[#0d1527] border border-white/10 hover:border-teal-500/30 cursor-pointer transition-all space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-xs font-bold text-teal-300 bg-teal-500/15 px-2.5 py-1 rounded-lg">
+                            {new Date(v.visit_date).toLocaleDateString("ar-EG")}
+                          </span>
+                          <span className="text-xs text-slate-300">
+                            الطبيب:{" "}
+                            <b className="text-white">د. {v.doctor_name}</b>
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold ${
+                            v.status === "final"
+                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                              : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          }`}
+                        >
+                          {v.status === "final" ? "معتمد ومغلق" : "مسودة"}
+                        </span>
+                      </div>
+
+                      {v.diagnosis && (
+                        <p className="text-xs text-slate-200">
+                          <b className="text-teal-400">التشخيص:</b>{" "}
+                          {v.diagnosis}
+                        </p>
+                      )}
+
+                      {Array.isArray(v.procedures) &&
+                        v.procedures.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {v.procedures.map((p, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300"
+                              >
+                                {p.procedure_name}{" "}
+                                {p.tooth_number ? `(#${p.tooth_number})` : ""}
+                                {p.surface ? ` [${p.surface}]` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <VisitEditorModal
+            isOpen={!!selectedVisitId}
+            visitId={selectedVisitId}
+            onClose={() => setSelectedVisitId(null)}
+            showToast={showToast}
+          />
         </div>
       </div>
 
