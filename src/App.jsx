@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from "react";
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -26,6 +26,7 @@ const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const Services = lazy(() => import("./pages/Services"));
 const Reports = lazy(() => import("./pages/Reports"));
+const ClinicSiteSettings = lazy(() => import("./pages/ClinicSiteSettings"));
 
 // لودر مركزي أنيق يظهر أثناء جلب الكود الكسول للصفحة
 function PageLoader() {
@@ -106,6 +107,15 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
                     <Reports />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="site-settings"
+                element={
+                  <ProtectedRoute allowedRoles={["ClinicAdmin"]}>
+                    <ClinicSiteSettings />
                   </ProtectedRoute>
                 }
               />

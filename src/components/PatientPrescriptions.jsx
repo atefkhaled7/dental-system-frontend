@@ -52,6 +52,7 @@ export default function PatientPrescriptions({
   initialDoctorId = "",
   autoOpenNew = false,
   onAutoOpenHandled,
+  showToast,
 }) {
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,8 +61,19 @@ export default function PatientPrescriptions({
 
   // تحذيرات الحساسية الدوائية الراجعة من الباك إند بعد الحفظ
   const [allergyWarnings, setAllergyWarnings] = useState([]);
-  const [pendingPrintAfterWarning, setPendingPrintAfterWarning] =
-    useState(null);
+  // const [pendingPrintAfterWarning, setPendingPrintAfterWarning] =
+  //   useState(null);
+
+  const [prescriptionToDelete, setPrescriptionToDelete] = useState(null);
+  const [isDeletingPrescription, setIsDeletingPrescription] = useState(false);
+
+  const notify = (message, type = "success") => {
+    if (typeof showToast === "function") {
+      showToast(message, type);
+    } else if (type === "error") {
+      alert(message);
+    }
+  };
 
   // فورم إضافة روشتة
   const [formData, setFormData] = useState({
@@ -192,27 +204,32 @@ export default function PatientPrescriptions({
   };
 
   // حفظ الروشتة مع فحص تحذيرات الحساسية
-  // حفظ الروشتة مع فحص تحذيرات الحساسية
-  const savePrescription = async (shouldPrintImmediately = false) => {
+  const savePrescription = async (
+    shouldPrintImmediately = false,
+    overrideWarning = false,
+  ) => {
     setSubmitting(true);
     try {
+      const payload = {
+        ...formData,
+        confirm_allergy_warnings: overrideWarning,
+      };
+
       const res = await api.post(
         `/patients/${patientId}/prescriptions`,
-        formData,
+        payload,
       );
       const createdPrescription = res.data;
-      const warnings = createdPrescription?.warnings || [];
 
-      // 1. جلب بيانات الروشتة الكاملة (بما فيها الطبيب والعيادة للطباعة)
       const refreshedPrescriptions = await fetchPrescriptions();
-
       const prescriptionForPrint =
         refreshedPrescriptions?.find(
           (p) => String(p.id) === String(createdPrescription.id),
         ) || createdPrescription;
 
-      // 2. إغلاق المودال وتصفير الفورم لتجهيزه للمرة القادمة
+      // إغلاق وتصفير فقط عند نجاح الحفظ الفعلي
       setIsModalOpen(false);
+      setAllergyWarnings([]);
       setFormData({
         doctor_id: initialDoctorId || "",
         prescription_date: new Date().toISOString().split("T")[0],
@@ -222,15 +239,25 @@ export default function PatientPrescriptions({
         medications: [{ name: "", dosage: "", duration: "", notes: "" }],
       });
 
-      // 3. التعامل مع التحذيرات أو الطباعة الفورية
-      if (warnings.length > 0) {
-        setAllergyWarnings(warnings);
-        setPendingPrintAfterWarning(prescriptionForPrint);
-      } else if (shouldPrintImmediately) {
+      notify("تم حفظ الروشتة بنجاح", "success");
+
+      if (shouldPrintImmediately) {
         handlePrint(prescriptionForPrint);
       }
     } catch (err) {
-      alert(err.response?.data?.error || "حدث خطأ أثناء حفظ الروشتة");
+      // 🚨 اعتراض تعارض الحساسية قبل الحفظ!
+      if (
+        err.response?.status === 409 &&
+        (err.response?.data?.requires_allergy_confirmation ||
+          err.response?.data?.can_override)
+      ) {
+        setAllergyWarnings(err.response.data.warnings || []);
+      } else {
+        notify(
+          err.response?.data?.error || "حدث خطأ أثناء حفظ الروشتة",
+          "error",
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -241,83 +268,31 @@ export default function PatientPrescriptions({
     savePrescription(false);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("هل أنت متأكد من حذف هذه الروشتة؟")) return;
+  const handleDelete = (id) => {
+    setPrescriptionToDelete(id);
+  };
+
+  const confirmDeletePrescription = async () => {
+    const id = prescriptionToDelete;
+    if (!id || isDeletingPrescription) return;
+
+    setIsDeletingPrescription(true);
+
     try {
       await api.delete(`/prescriptions/${id}`);
-      fetchPrescriptions();
-      if (pendingPrintAfterWarning?.id === id) {
-        setAllergyWarnings([]);
-        setPendingPrintAfterWarning(null);
-      }
+      await fetchPrescriptions();
+
+      setPrescriptionToDelete(null);
+      notify("تم حذف الروشتة بنجاح", "success");
     } catch (err) {
-      alert("فشل حذف الروشتة");
+      notify(err.response?.data?.error || "فشل حذف الروشتة", "error");
+    } finally {
+      setIsDeletingPrescription(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* 🌟 تنبيه الحساسية الدوائية لو ظهر بعد حفظ روشتة تتعارض مع حساسية المريض */}
-      {allergyWarnings.length > 0 && (
-        <div
-          dir="rtl"
-          className="p-4 rounded-2xl bg-rose-500/15 backdrop-blur-xl border-2 border-rose-500/50 text-rose-100 space-y-3 shadow-2xl shadow-rose-950/50 animate-in fade-in"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2.5 text-rose-400">
-              <AlertOctagon className="w-6 h-6 animate-pulse shrink-0" />
-              <h4 className="font-black text-sm sm:text-base text-white">
-                تحذير تفاعل حساسية دوائية خطير!
-              </h4>
-            </div>
-            <button
-              onClick={() => {
-                setAllergyWarnings([]);
-                setPendingPrintAfterWarning(null);
-              }}
-              className="text-rose-300 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <ul className="space-y-1.5 text-xs sm:text-sm pr-2">
-            {allergyWarnings.map((w, idx) => (
-              <li
-                key={idx}
-                className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/30 font-semibold text-rose-200"
-              >
-                ⚠️ {w.message}
-              </li>
-            ))}
-          </ul>
-
-          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-rose-500/30">
-            {pendingPrintAfterWarning?.id && (
-              <button
-                type="button"
-                onClick={() => handleDelete(pendingPrintAfterWarning.id)}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition"
-              >
-                حذف هذه الروشتة فوراً واستبدال الدواء
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                const toPrint = pendingPrintAfterWarning;
-                setAllergyWarnings([]);
-                setPendingPrintAfterWarning(null);
-                if (toPrint) handlePrint(toPrint);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold transition"
-            >
-              تجاهل التحذير وطباعة الروشتة على مسؤوليتي
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* الهيدر وزرار الإضافة */}
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -465,6 +440,66 @@ export default function PatientPrescriptions({
               alertSummary={patient?.alert_summary}
               className="mb-4"
             />
+            {/* 🚨 بانر التحذير يظهر هنا داخل المودال إذا اكتشف السيرفر تعارض حساسية قبل الحفظ */}
+            {allergyWarnings.length > 0 && (
+              <div className="mb-4 p-4 rounded-2xl bg-rose-500/20 border-2 border-rose-500/60 text-rose-100 space-y-3 shadow-xl animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                    <AlertOctagon className="w-5 h-5 animate-pulse shrink-0" />
+                    <span>
+                      تحذير: تم اكتشاف تعارض دوائي مع حساسية المريض المسجلة!
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllergyWarnings([])}
+                    className="text-rose-300 hover:text-white p-1"
+                    title="إغلاق التنبيه"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* قائمة الأدوية المتعارضة */}
+                <ul className="space-y-1.5 text-xs pr-2">
+                  {allergyWarnings.map((w, idx) => (
+                    <li
+                      key={idx}
+                      className="p-2 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-200 font-semibold"
+                    >
+                      ⚠️ {w.message}
+                    </li>
+                  ))}
+                </ul>
+
+                {/* أزرار اتخاذ القرار الطبي */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-rose-500/30">
+                  <span className="text-[11px] text-rose-300">
+                    💡 يمكنك تعديل اسم الدواء بالأسفل، أو المتابعة إذا كانت هناك
+                    ضرورة طبية:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => savePrescription(false, true)} // 👈 حفظ بتجاوز التحذير
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition disabled:opacity-50"
+                    >
+                      تأكيد وحفظ على مسؤوليتي
+                    </button>
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => savePrescription(true, true)} // 👈 حفظ وطباعة بتجاوز التحذير
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs transition disabled:opacity-50"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>تأكيد وطباعة فوراً</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="mb-4 p-3.5 bg-[#070b14]/70 rounded-xl border border-white/10">
               <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
@@ -666,6 +701,53 @@ export default function PatientPrescriptions({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {prescriptionToDelete && (
+        <div
+          className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          dir="rtl"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-prescription-title"
+            className="w-full max-w-md bg-[#0d1527] border border-rose-500/30 rounded-2xl p-5 shadow-2xl space-y-4"
+          >
+            <div>
+              <h3
+                id="delete-prescription-title"
+                className="text-base font-bold text-white"
+              >
+                تأكيد حذف الروشتة
+              </h3>
+
+              <p className="text-sm text-slate-300 mt-2">
+                هل أنت متأكد من حذف الروشتة؟ لا يمكن التراجع عن هذا الإجراء.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isDeletingPrescription}
+                onClick={() => setPrescriptionToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-semibold disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeletingPrescription}
+                onClick={confirmDeletePrescription}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold disabled:opacity-50"
+              >
+                {isDeletingPrescription ? "جاري الحذف..." : "تأكيد الحذف"}
+              </button>
+            </div>
           </div>
         </div>
       )}

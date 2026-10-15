@@ -893,7 +893,11 @@ export default function PatientDetails() {
 
           {/* تبويب: الروشتات */}
           {activeTab === "prescriptions" && (
-            <PatientPrescriptions patientId={id} patient={patient} />
+            <PatientPrescriptions
+              patientId={id}
+              patient={patient}
+              showToast={showToast}
+            />
           )}
 
           {/* تبويب: المواعيد */}

@@ -963,6 +963,7 @@ export default function VisitEditorModal({
                     initialDoctorId={visit.doctor_id}
                     autoOpenNew={autoOpenPrescription}
                     onAutoOpenHandled={handlePrescriptionAutoOpenHandled}
+                    showToast={showToast}
                   />
                 </div>
               )}
@@ -1229,11 +1230,24 @@ export default function VisitEditorModal({
               >
                 إلغاء
               </button>
+
               <button
                 type="button"
                 disabled={createTemplateMutation.isPending}
-                onClick={() => createTemplateMutation.mutate(templateForm)}
-                className="px-4 py-1.5 rounded-xl bg-teal-500 text-slate-950 text-xs font-bold"
+                onClick={() => {
+                  const title = templateForm.title.trim();
+
+                  if (!title) {
+                    notify("عنوان القالب مطلوب", "error");
+                    return;
+                  }
+
+                  createTemplateMutation.mutate({
+                    ...templateForm,
+                    title,
+                  });
+                }}
+                className="px-4 py-1.5 rounded-xl bg-teal-500 text-slate-950 text-xs font-bold disabled:opacity-50"
               >
                 {createTemplateMutation.isPending
                   ? "جاري الحفظ..."

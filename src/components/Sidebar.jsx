@@ -156,6 +156,7 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
         { name: "الخدمات والأسعار", path: "/services", icon: Tag },
         ...(user?.role === "ClinicAdmin"
           ? [
+              { name: "موقع العيادة والحجز", path: "/site-settings", icon: Globe },
               { name: "سجل الرقابة", path: "/audit-logs", icon: ClipboardList },
               { name: "طاقم العمل", path: "/staff", icon: UserCog },
               { name: "التقارير المالية", path: "/reports", icon: BarChart3 },
