@@ -27,7 +27,7 @@ const TermsOfService = lazy(() => import("./pages/TermsOfService"));
 const Services = lazy(() => import("./pages/Services"));
 const Reports = lazy(() => import("./pages/Reports"));
 const ClinicSiteSettings = lazy(() => import("./pages/ClinicSiteSettings"));
-
+const Marketing = lazy(() => import("./pages/Marketing"));
 // لودر مركزي أنيق يظهر أثناء جلب الكود الكسول للصفحة
 function PageLoader() {
   return (
@@ -82,8 +82,8 @@ export default function App() {
               <Route path="invoices" element={<Invoices />} />
               <Route path="lab-orders" element={<LabOrders />} />
               <Route path="services" element={<Services />} />
+              <Route path="marketing" element={<Marketing />} />
               <Route path="staff" element={<Staff />} />
-
               <Route
                 path="clinics"
                 element={

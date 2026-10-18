@@ -9,7 +9,34 @@ import {
   Clock,
   X,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
+
+// خيارات الحالات الناتجة لشارت الأسنان
+const RESULTING_CONDITIONS = [
+  { value: "", label: "-- استنتاج تلقائي من اسم الإجراء إن أمكن --" },
+  { value: "filled", label: "حشو أسنان (Filled)" },
+  { value: "rct", label: "علاج عصب / جذور (RCT)" },
+  { value: "crown", label: "تاج / تركيبة / فينير (Crown)" },
+  { value: "implant", label: "زراعة سن (Implant)" },
+  { value: "missing", label: "خلع سن (Missing / Extraction)" },
+  { value: "sealant", label: "سيلانت وقائي (Sealant)" },
+  { value: "fracture", label: "كسر بالسن (Fracture)" },
+  { value: "caries", label: "تسوس (Caries)" },
+  { value: "sound", label: "سليم (Sound)" },
+];
+
+const CONDITION_BADGES = {
+  filled: "bg-teal-500/10 text-teal-300 border-teal-500/30",
+  rct: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  crown: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+  implant: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+  missing: "bg-slate-800 text-slate-300 border-slate-700",
+  sealant: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+  fracture: "bg-pink-500/10 text-pink-400 border-pink-500/30",
+  caries: "bg-rose-500/10 text-rose-400 border-rose-500/30",
+  sound: "bg-slate-800 text-slate-400 border-slate-700",
+};
 
 export default function Services() {
   const [services, setServices] = useState([]);
@@ -17,7 +44,6 @@ export default function Services() {
   const [fetchError, setFetchError] = useState("");
   const [search, setSearch] = useState("");
 
-  // حالة المودال (إضافة أو تعديل)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [formData, setFormData] = useState({
@@ -25,21 +51,19 @@ export default function Services() {
     description: "",
     default_price: "",
     duration_minutes: 30,
+    resulting_condition: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // جلب الخدمات من السيرفر
   const fetchServices = async () => {
     try {
       setLoading(true);
       setFetchError("");
-
       const res = await api.get("/procedure-codes");
       setServices(res.data);
     } catch (err) {
       console.error("فشل جلب الخدمات:", err);
-
       setFetchError(
         err.response?.data?.error ||
           err.response?.data?.message ||
@@ -54,7 +78,6 @@ export default function Services() {
     fetchServices();
   }, []);
 
-  // فتح مودال الإضافة
   const handleOpenAdd = () => {
     setEditingService(null);
     setFormData({
@@ -62,12 +85,12 @@ export default function Services() {
       description: "",
       default_price: "",
       duration_minutes: 30,
+      resulting_condition: "",
     });
     setErrorMsg("");
     setIsModalOpen(true);
   };
 
-  // فتح مودال التعديل
   const handleOpenEdit = (item) => {
     setEditingService(item);
     setFormData({
@@ -75,22 +98,27 @@ export default function Services() {
       description: item.description,
       default_price: item.default_price,
       duration_minutes: item.duration_minutes || 30,
+      resulting_condition: item.resulting_condition || "",
     });
     setErrorMsg("");
     setIsModalOpen(true);
   };
 
-  // حفظ (إضافة / تعديل)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
     setSubmitting(true);
 
     try {
+      const payload = {
+        ...formData,
+        resulting_condition: formData.resulting_condition || null,
+      };
+
       if (editingService) {
-        await api.put(`/procedure-codes/${editingService.id}`, formData);
+        await api.put(`/procedure-codes/${editingService.id}`, payload);
       } else {
-        await api.post("/procedure-codes", formData);
+        await api.post("/procedure-codes", payload);
       }
       setIsModalOpen(false);
       fetchServices();
@@ -105,7 +133,6 @@ export default function Services() {
     }
   };
 
-  // حذف (تعطيل) الخدمة
   const handleDelete = async (id, name) => {
     if (!window.confirm(`هل أنت متأكد من حذف/تعطيل خدمة "${name}"؟`)) return;
     try {
@@ -118,7 +145,6 @@ export default function Services() {
     }
   };
 
-  // فلترة بالبحث
   const filtered = services.filter(
     (s) =>
       s.description.toLowerCase().includes(search.toLowerCase()) ||
@@ -135,14 +161,13 @@ export default function Services() {
             الخدمات وأسعار الكشف
           </h1>
           <p className="text-xs sm:text-sm text-[var(--text-muted)] mt-1">
-            إدارة الإجراءات الطبية وأسعارها ومدة كل جلسة لحساب مواعيد الحجز
-            بدقة.
+            إدارة الإجراءات الطبية وأسعارها وربطها التلقائي بمخطط الأسنان.
           </p>
         </div>
 
         <button
           onClick={handleOpenAdd}
-          className="inline-flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:opacity-90 text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-semibold text-sm transition"
+          className="inline-flex items-center justify-center gap-2 bg-[var(--primary-base)] hover:opacity-90 text-white px-4 py-2.5 rounded-[var(--radius-btn)] font-semibold text-sm transition shadow-md shadow-teal-600/20"
         >
           <Plus className="w-4 h-4" />
           إضافة خدمة جديدة
@@ -196,6 +221,7 @@ export default function Services() {
                   <th className="p-3.5 sm:px-6 font-medium">
                     اسم الخدمة / الإجراء
                   </th>
+                  <th className="p-3.5 sm:px-6 font-medium">الأثر بالشارت</th>
                   <th className="p-3.5 sm:px-6 font-medium">السعر الافتراضي</th>
                   <th className="p-3.5 sm:px-6 font-medium">مدة الجلسة</th>
                   <th className="p-3.5 sm:px-6 font-medium text-left">
@@ -204,48 +230,72 @@ export default function Services() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-default)] text-[var(--text-main)]">
-                {filtered.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-[var(--bg-elevated)]/50 transition"
-                  >
-                    <td className="p-3.5 sm:px-6 font-mono text-xs font-semibold text-[var(--primary-base)]">
-                      {item.code}
-                    </td>
-                    <td className="p-3.5 sm:px-6 font-medium">
-                      {item.description}
-                    </td>
-                    <td className="p-3.5 sm:px-6 font-semibold">
-                      {Number(item.default_price).toLocaleString("ar-EG")} ج.م
-                    </td>
-                    <td className="p-3.5 sm:px-6 text-xs text-[var(--text-secondary)]">
-                      <span className="inline-flex items-center gap-1.5 bg-[var(--bg-elevated)] px-2.5 py-1 rounded-md border border-[var(--border-default)]">
-                        <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                        {item.duration_minutes || 30} دقيقة
-                      </span>
-                    </td>
-                    <td className="p-3.5 sm:px-6 text-left">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-elevated)] rounded-md transition"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleDelete(item.id, item.description)
-                          }
-                          className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-md transition"
-                          title="حذف/تعطيل"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((item) => {
+                  const condObj = RESULTING_CONDITIONS.find(
+                    (c) => c.value === item.resulting_condition,
+                  );
+                  const badgeClass =
+                    CONDITION_BADGES[item.resulting_condition] || "";
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-[var(--bg-elevated)]/50 transition"
+                    >
+                      <td className="p-3.5 sm:px-6 font-mono text-xs font-semibold text-[var(--primary-base)]">
+                        {item.code}
+                      </td>
+                      <td className="p-3.5 sm:px-6 font-medium">
+                        {item.description}
+                      </td>
+                      <td className="p-3.5 sm:px-6 text-xs">
+                        {item.resulting_condition ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-medium ${badgeClass}`}
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            {condObj
+                              ? condObj.label.split(" (")[0]
+                              : item.resulting_condition}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--text-muted)] text-[11px]">
+                            تلقائي / حسب النص
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3.5 sm:px-6 font-semibold">
+                        {Number(item.default_price).toLocaleString("ar-EG")} ج.م
+                      </td>
+                      <td className="p-3.5 sm:px-6 text-xs text-[var(--text-secondary)]">
+                        <span className="inline-flex items-center gap-1.5 bg-[var(--bg-elevated)] px-2.5 py-1 rounded-md border border-[var(--border-default)]">
+                          <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                          {item.duration_minutes || 30} دقيقة
+                        </span>
+                      </td>
+                      <td className="p-3.5 sm:px-6 text-left">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleOpenEdit(item)}
+                            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-elevated)] rounded-md transition"
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleDelete(item.id, item.description)
+                            }
+                            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-md transition"
+                            title="حذف/تعطيل"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -308,6 +358,32 @@ export default function Services() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                  الحالة الناتجة لشارت الأسنان عند إتمام الإجراء
+                </label>
+                <select
+                  value={formData.resulting_condition}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      resulting_condition: e.target.value,
+                    })
+                  }
+                  className="w-full bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-[var(--radius-btn)] p-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary-base)] cursor-pointer"
+                >
+                  {RESULTING_CONDITIONS.map((cond) => (
+                    <option key={cond.value} value={cond.value}>
+                      {cond.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                  تحدد تلقائياً لون وحالة السن والأسطح في الشارت فور اعتماد
+                  الزيارة أو إتمام بند الخطة.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
@@ -350,11 +426,6 @@ export default function Services() {
                   />
                 </div>
               </div>
-
-              <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                * مدة الكشف بتحدد أوتوماتيكياً الأوقات المتاحة للمرضى في صفحة
-                الحجز الأونلاين.
-              </p>
 
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--border-default)]">
                 <button

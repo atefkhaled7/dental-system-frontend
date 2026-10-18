@@ -10,6 +10,7 @@ import {
   CreditCard,
   FlaskConical,
   LogOut,
+  Megaphone,
   X,
   UserCog,
   Building2,
@@ -151,12 +152,17 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
         { name: "الرئيسية", path: "/", icon: LayoutDashboard },
         { name: "المرضى", path: "/patients", icon: Users },
         { name: "المواعيد", path: "/appointments", icon: Calendar },
+        { name: "التسويق والاستدعاء", path: "/marketing", icon: Megaphone },
         { name: "الفواتير والمالية", path: "/invoices", icon: CreditCard },
         { name: "طلبات المعامل", path: "/lab-orders", icon: FlaskConical },
         { name: "الخدمات والأسعار", path: "/services", icon: Tag },
         ...(user?.role === "ClinicAdmin"
           ? [
-              { name: "موقع العيادة والحجز", path: "/site-settings", icon: Globe },
+              {
+                name: "موقع العيادة والحجز",
+                path: "/site-settings",
+                icon: Globe,
+              },
               { name: "سجل الرقابة", path: "/audit-logs", icon: ClipboardList },
               { name: "طاقم العمل", path: "/staff", icon: UserCog },
               { name: "التقارير المالية", path: "/reports", icon: BarChart3 },

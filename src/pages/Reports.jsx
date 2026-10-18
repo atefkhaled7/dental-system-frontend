@@ -15,7 +15,6 @@ import {
   Settings,
   Wallet,
   Receipt,
-  FlaskConical,
   X,
   Check,
   Loader2,
@@ -35,7 +34,13 @@ const formatCairoDate = (date = new Date()) => {
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
+const formatMoney = (value) => {
+  const amount = Number(value ?? 0);
 
+  return (Number.isFinite(amount) ? amount : 0).toLocaleString("ar-EG", {
+    maximumFractionDigits: 2,
+  });
+};
 const EXPENSE_CATEGORIES = [
   "مستلزمات وخامات طبية",
   "إيجار ومرافق وكهرباء",
@@ -89,6 +94,14 @@ export default function Reports() {
   // حالة سجل المصروفات
   const [expensesList, setExpensesList] = useState([]);
   const [expensesLoading, setExpensesLoading] = useState(false);
+
+  const [expensesPage, setExpensesPage] = useState(1);
+  const [expensesPagination, setExpensesPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 50,
+    totalPages: 0,
+  });
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState("");
   const [expenseSearch, setExpenseSearch] = useState("");
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -152,6 +165,7 @@ export default function Reports() {
     end = dateRange.endDate,
     cat = expenseCategoryFilter,
     q = expenseSearch,
+    page = expensesPage,
   ) => {
     try {
       setExpensesLoading(true);
@@ -161,10 +175,37 @@ export default function Reports() {
           to: end,
           category: cat || undefined,
           search: q.trim() || undefined,
+          page,
           limit: 50,
         },
       });
-      setExpensesList(res.data.expenses || []);
+      const list = res.data.expenses || [];
+
+      const pagination = res.data.pagination || {
+        total: list.length,
+        page,
+        limit: 50,
+        totalPages: list.length > 0 ? 1 : 0,
+      };
+
+      // لو آخر صفحة بقت خارج النطاق بعد حذف مصروف، ارجع لآخر صفحة موجودة.
+      const totalPages = Number(pagination.totalPages || 0);
+
+      if (totalPages > 0 && page > totalPages) {
+        setExpensesPage(totalPages);
+        await fetchExpenses(start, end, cat, q, totalPages);
+        return;
+      }
+
+      setExpensesList(list);
+      setExpensesPage(totalPages > 0 ? Number(pagination.page || page) : 1);
+
+      setExpensesPagination({
+        total: Number(pagination.total || 0),
+        page: Number(pagination.page || page),
+        limit: Number(pagination.limit || 50),
+        totalPages,
+      });
     } catch (err) {
       showToast(err.response?.data?.error || "تعذر جلب سجل المصروفات", "error");
     } finally {
@@ -221,15 +262,17 @@ export default function Reports() {
     }
 
     setDateRange({ startDate: sDate, endDate: eDate });
+    setExpensesPage(1);
     fetchReports(sDate, eDate);
     if (activeTab === "expenses") {
-      fetchExpenses(sDate, eDate, expenseCategoryFilter, expenseSearch);
+      fetchExpenses(sDate, eDate, expenseCategoryFilter, expenseSearch, 1);
     }
   };
 
   const handleCustomFilter = (e) => {
     e.preventDefault();
     setActivePreset(null);
+    setExpensesPage(1);
     fetchReports(dateRange.startDate, dateRange.endDate);
     if (activeTab === "expenses") {
       fetchExpenses(
@@ -237,6 +280,7 @@ export default function Reports() {
         dateRange.endDate,
         expenseCategoryFilter,
         expenseSearch,
+        1,
       );
     }
   };
@@ -524,12 +568,12 @@ export default function Reports() {
         })}
       </div>
 
-      {loading ? (
+      {loading && activeTab !== "expenses" ? (
         <div className="p-12 flex flex-col items-center justify-center gap-3 text-sm text-[var(--text-muted)]">
           <Loader2 className="w-8 h-8 animate-spin text-[var(--primary-base)]" />
           <span>جاري تجميع وحساب البيانات المالية...</span>
         </div>
-      ) : fetchError || !data ? (
+      ) : (fetchError || !data) && activeTab !== "expenses" ? (
         <div className="p-12 text-center space-y-3">
           <p className="text-sm text-red-400">
             {fetchError || "تعذر تحميل التقارير"}
@@ -857,30 +901,79 @@ export default function Reports() {
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative w-64">
-                    <Search className="w-4 h-4 text-[var(--text-muted)] absolute right-3 top-2.5" />
-                    <input
-                      type="text"
-                      placeholder="بحث في المصروفات أو الموردين..."
-                      value={expenseSearch}
-                      onChange={(e) => setExpenseSearch(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          fetchExpenses(
-                            dateRange.startDate,
-                            dateRange.endDate,
-                            expenseCategoryFilter,
-                            expenseSearch,
-                          );
-                        }
+                  <div className="flex items-center gap-1">
+                    <div className="relative w-64">
+                      <Search className="w-4 h-4 text-[var(--text-muted)] absolute right-3 top-2.5" />
+
+                      <input
+                        type="text"
+                        placeholder="بحث في المصروفات أو الموردين..."
+                        value={expenseSearch}
+                        onChange={(e) => setExpenseSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            setExpensesPage(1);
+                            fetchExpenses(
+                              dateRange.startDate,
+                              dateRange.endDate,
+                              expenseCategoryFilter,
+                              expenseSearch,
+                              1,
+                            );
+                          }
+                        }}
+                        className="w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg pr-9 pl-9 py-2 text-xs text-[var(--text-main)]"
+                      />
+
+                      {expenseSearch.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpenseSearch("");
+                            setExpensesPage(1);
+                            fetchExpenses(
+                              dateRange.startDate,
+                              dateRange.endDate,
+                              expenseCategoryFilter,
+                              "",
+                              1,
+                            );
+                          }}
+                          className="absolute left-2 top-2 text-[var(--text-muted)] hover:text-white"
+                          title="مسح البحث"
+                          aria-label="مسح البحث"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpensesPage(1);
+                        fetchExpenses(
+                          dateRange.startDate,
+                          dateRange.endDate,
+                          expenseCategoryFilter,
+                          expenseSearch,
+                          1,
+                        );
                       }}
-                      className="w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg pr-9 pl-3 py-2 text-xs text-[var(--text-main)]"
-                    />
+                      disabled={expensesLoading}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-[var(--primary-base)] text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      بحث
+                    </button>
                   </div>
 
                   <select
                     value={expenseCategoryFilter}
-                    onChange={(e) => setExpenseCategoryFilter(e.target.value)}
+                    onChange={(e) => {
+                      setExpenseCategoryFilter(e.target.value);
+                      setExpensesPage(1);
+                    }}
                     className="bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs text-[var(--text-main)]"
                   >
                     <option value="">كل تصنيفات المصروفات</option>
@@ -959,7 +1052,15 @@ export default function Reports() {
                               {Number(exp.amount).toLocaleString("ar-EG")} ج.م
                             </td>
                             <td className="p-3 text-center">
-                              {!exp.lab_order_id ? (
+                              {exp.lab_order_id ? (
+                                <span className="text-[10px] text-teal-400">
+                                  مرتبط بمعمل
+                                </span>
+                              ) : exp.is_payout ? (
+                                <span className="text-[10px] text-amber-400">
+                                  تسوية طبيب
+                                </span>
+                              ) : (
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteExpense(exp.id)}
@@ -968,16 +1069,67 @@ export default function Reports() {
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
-                              ) : (
-                                <span className="text-[10px] text-teal-400">
-                                  مرتبط بمعمل
-                                </span>
                               )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {expensesPagination.totalPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 border-t border-[var(--border-default)]">
+                    <span className="text-xs text-[var(--text-muted)]">
+                      إجمالي المصروفات:{" "}
+                      {expensesPagination.total.toLocaleString("ar-EG")}
+                      {" — "}
+                      الصفحة {expensesPage} من {expensesPagination.totalPages}
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={expensesLoading || expensesPage <= 1}
+                        onClick={() => {
+                          const previousPage = expensesPage - 1;
+                          setExpensesPage(previousPage);
+
+                          fetchExpenses(
+                            dateRange.startDate,
+                            dateRange.endDate,
+                            expenseCategoryFilter,
+                            expenseSearch,
+                            previousPage,
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-xs text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-elevated)]"
+                      >
+                        السابق
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          expensesLoading ||
+                          expensesPage >= expensesPagination.totalPages
+                        }
+                        onClick={() => {
+                          const nextPage = expensesPage + 1;
+                          setExpensesPage(nextPage);
+
+                          fetchExpenses(
+                            dateRange.startDate,
+                            dateRange.endDate,
+                            expenseCategoryFilter,
+                            expenseSearch,
+                            nextPage,
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-xs text-[var(--text-main)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--bg-elevated)]"
+                      >
+                        التالي
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1070,8 +1222,8 @@ export default function Reports() {
                               </span>
                               {Number(doc.base_salary || 0) > 0 && (
                                 <span className="block text-[11px] text-amber-300 font-mono">
-                                  + راتب أساسي:{" "}
-                                  {Number(doc.base_salary).toLocaleString()} ج.م
+                                  + راتب أساسي: {formatMoney(doc.base_salary)}{" "}
+                                  ج.م
                                 </span>
                               )}
                             </td>
@@ -1083,10 +1235,7 @@ export default function Reports() {
                                 ج.م
                               </div>
                               <span className="text-[10px] text-teal-400">
-                                عمولة:{" "}
-                                {Number(
-                                  doc.calculated_commission || 0,
-                                ).toLocaleString()}{" "}
+                                عمولة: {formatMoney(doc.calculated_commission)}{" "}
                                 ج.م
                               </span>
                             </td>
@@ -1158,7 +1307,9 @@ export default function Reports() {
                         {payoutsHistory.map((p) => (
                           <tr key={p.id}>
                             <td className="p-2.5 font-mono" dir="ltr">
-                              {new Date(p.paid_at).toLocaleDateString("en-GB")}
+                              {new Date(p.paid_at).toLocaleDateString("en-GB", {
+                                timeZone: "Africa/Cairo",
+                              })}
                             </td>
                             <td className="p-2.5 font-bold">
                               د. {p.doctor_name}
@@ -1170,14 +1321,13 @@ export default function Reports() {
                               {p.period_start} → {p.period_end}
                             </td>
                             <td className="p-2.5 font-mono text-teal-300">
-                              {Number(p.commission_amount).toLocaleString()} ج.م
+                              {formatMoney(p.commission_amount)} ج.م
                             </td>
                             <td className="p-2.5 font-mono">
-                              {Number(p.base_salary_amount).toLocaleString()}{" "}
-                              ج.م
+                              {formatMoney(p.base_salary_amount)} ج.م
                             </td>
                             <td className="p-2.5 font-mono font-bold text-emerald-400">
-                              {Number(p.total_payout).toLocaleString()} ج.م
+                              {formatMoney(p.total_payout)} ج.م
                             </td>
                             <td className="p-2.5 text-[var(--text-secondary)]">
                               {PAYMENT_METHOD_LABELS[p.payment_method] ||
@@ -1324,7 +1474,23 @@ export default function Reports() {
                   />
                 </div>
               </div>
-
+              <div>
+                <label className="block text-xs text-[var(--text-secondary)] mb-1">
+                  ملاحظات المصروف (اختياري)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="تفاصيل إضافية عن المصروف أو الفاتورة..."
+                  value={expenseForm.notes}
+                  onChange={(e) =>
+                    setExpenseForm({
+                      ...expenseForm,
+                      notes: e.target.value,
+                    })
+                  }
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs text-white resize-y"
+                />
+              </div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -1425,7 +1591,23 @@ export default function Reports() {
                   />
                 </div>
               </div>
-
+              <div>
+                <label className="block text-xs text-[var(--text-secondary)] mb-1">
+                  ملاحظات الاتفاق (اختياري)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="مثال: نسبة خاصة لفترة محددة أو شروط الاتفاق..."
+                  value={compForm.notes}
+                  onChange={(e) =>
+                    setCompForm({
+                      ...compForm,
+                      notes: e.target.value,
+                    })
+                  }
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs text-white resize-y"
+                />
+              </div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -1476,10 +1658,7 @@ export default function Reports() {
                   الوعاء الخاضع للنسبة ({payoutModalDoctor.commission_rate}%):
                 </span>
                 <span className="font-mono text-teal-300 font-bold">
-                  {Number(
-                    payoutModalDoctor.gross_basis_amount || 0,
-                  ).toLocaleString()}{" "}
-                  ج.م
+                  {formatMoney(payoutModalDoctor.gross_basis_amount)} ج.م
                 </span>
               </div>
             </div>
@@ -1529,7 +1708,7 @@ export default function Reports() {
                   إجمالي المبلغ المنصرف (العمولة + الراتب):
                 </span>
                 <span className="font-mono text-base font-black text-white">
-                  {calculatedTotalPayout.toLocaleString("en-US")} ج.م
+                  {formatMoney(calculatedTotalPayout)}
                 </span>
               </div>
 
